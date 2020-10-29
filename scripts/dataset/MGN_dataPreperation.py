@@ -9,8 +9,8 @@ Created on Thu Oct 25 21:31:01 2020
 import os
 import ast
 import sys 
-import pathlib
 sys.path.append( "../" )
+import pathlib
 import argparse
 import subprocess
 from glob import glob
@@ -20,9 +20,8 @@ from os.path import join as pjn
 import yaml
 import numpy as np
 import matplotlib.pyplot as plt
-from utils.mesh_util import read_Obj
 from utils.render_util import light, camera, getMaterialPath
-
+from utils.mesh_util import read_Obj, computeDisplacement
 
 def _run_blender(blenderPath: str, renderPath: str, cachePath: str, stdin=None,
                  stdout=None, stderr=None):
@@ -218,7 +217,8 @@ def boundingbox(imagefolder: str, cameraIdx: int = 0, marginSize: int = 25):
 
 if __name__ == "__main__":
     '''
-    Renderning images for meshes of the MGN dataset.
+    Renderning images for meshes of the MGN dataset and compute the ground 
+    truth displacements of vertices.
     '''
     # parse arguments
     parser = argparse.ArgumentParser()
@@ -240,14 +240,20 @@ if __name__ == "__main__":
     cachePathAbs = str(pathlib.Path(__file__).parent.absolute())
     _run_blender(cfgs['blenderPath'], renderPath=renderScript, cachePath = cachePathAbs)
     
-    # verify the quality of the rendered image and get the bounding box
+    
+    # compute the ground truth displacements; verify the quality of the 
+    # rendered image and get the bounding box
     for folder in sorted(glob( pjn(cfgs['dataroot'], '*' ) )):
         
-        numCameras = cfgs['numCircCameras'] * len(cfgs['camera_heights']) * \
-                     len(cfgs['camera_horiz_distance']) * len(cfgs['camera_resolution'])
+        # GT displacements
+        computeDisplacement(folder, cfgs['smplModel'],  device='cpu')
         
+        # rendering verification and generate boundingbox
+        numCameras = cfgs['numCircCameras'] * len(cfgs['camera_heights']) * \
+                      len(cfgs['camera_horiz_distance']) * len(cfgs['camera_resolution'])
         for cameraIdx in range(numCameras):
             boundingbox( pjn(folder, 'rendering'), cameraIdx, marginSize = 25)
+    
     
     
     
