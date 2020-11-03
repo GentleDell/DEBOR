@@ -14,14 +14,18 @@ from os.path import join as pjn, isfile, exists, isdir
 import pickle
 import errno
 
+from PIL import Image
 import torch
 from torch import Tensor
+from scipy import interpolate
 import open3d as o3d
 import numpy as np
+from numpy import array
 import chumpy as ch
 
 from third_party.smpl_webuser.serialization import load_model
 from third_party.smpl_webuser.lbs import verts_core as _verts_core 
+
 
 def read_Obj(path):
     '''  
@@ -65,6 +69,203 @@ def read_Obj(path):
         tri_list_uv -= 1
       
     return vertices, tri_list_vertex, texture_uv_coor, tri_list_uv
+
+
+def visualizePointCloud(pointCloud: Tensor, texture: Tensor = None, 
+                        normalKNN: int = 5):
+    '''
+    This function visualize the given point cloud by open3D package. The color
+    is normal vector of vertices.
+
+    Parameters
+    ----------
+    pointCloud : Tensor
+        The point cloud to be visualized.
+    texture : Tensor
+        The texture of to be draw on the point cloud.
+    normalKNN : int, optional
+        The number of nearest neigbors to approximate the normal. 
+        The default is 5.
+
+    Returns
+    -------
+    None.
+
+    '''    
+    KNNPara = o3d.geometry.KDTreeSearchParamKNN(normalKNN)
+    
+    # use open3d to estimate normals
+    PointCloud = o3d.geometry.PointCloud()
+    PointCloud.points = o3d.utility.Vector3dVector(pointCloud)
+    PointCloud.estimate_normals(search_param = KNNPara)
+    
+    if texture is not None:
+        PointCloud.colors = o3d.utility.Vector3dVector(texture)
+        
+    # visualize the estimated normal on the mesh
+    o3d.visualization.draw_geometries([PointCloud])
+    
+
+def interpolateTexture(verticeShape: tuple, mesh: array, texture: array, 
+                       text_uv_coord: array, text_uv_mesh: array, 
+                       algorithm: str = 'nearestNeighbors') -> array:
+    '''
+    This function interpolates the given texture for the given mesh. 
+
+    Parameters
+    ----------
+    verticeShape : tuple
+        The shape of the vertices of the mesh.
+    mesh : array
+        The edges of the mesh, [Nx3].
+    texture : array
+        The texture image of the mesh, [HxW].
+    text_uv_coord : array
+        The uv coordiate to get the color from the texture.
+    text_uv_mesh : array
+        Specifying the id of uv_coord of triplets.
+    algorithm : str, optional
+        Which interpolation algorithm to use. 
+        The default is 'nearestNeighbors'.
+
+    Returns
+    -------
+    array
+        The color of the mesh.
+
+    '''
+    assert algorithm in ('nearestNeighbors', 'cubic'), "only support nearestNeighbors and cubic."
+    
+    UV_size = texture.shape[0]
+    text_uv_coord[:, 1] = 1 - text_uv_coord[:, 1];
+    x = np.linspace(0, 1, UV_size)
+    y = np.linspace(0, 1, UV_size)
+    meshColor = np.zeros(verticeShape)
+    
+    if algorithm == 'cubic':
+        R = interpolate.interp2d(x, y, texture[:,:,0], kind='cubic')
+        G = interpolate.interp2d(x, y, texture[:,:,1], kind='cubic')
+        B = interpolate.interp2d(x, y, texture[:,:,2], kind='cubic')
+        
+        for indVt, induv in zip(mesh.flatten(), text_uv_mesh.flatten()):
+            meshColor[indVt,:] = np.stack((R(text_uv_coord[induv,0], text_uv_coord[induv,1]),
+                                           G(text_uv_coord[induv,0], text_uv_coord[induv,1]),
+                                           B(text_uv_coord[induv,0], text_uv_coord[induv,1])), 
+                                          axis = 1)
+    elif algorithm == 'nearestNeighbors':
+        xg, yg = np.meshgrid(x,y)
+        coords = np.stack([xg.flatten(), yg.flatten()], axis = 1)
+        interp = interpolate.NearestNDInterpolator(coords, texture.reshape(-1, 3))
+
+        for indVt, induv in zip(mesh.flatten(), text_uv_mesh.flatten()):
+            meshColor[indVt,:] = interp(text_uv_coord[induv,0], text_uv_coord[induv,1])
+        
+    return meshColor
+
+
+def computeNormalGuidedDiff(srcVertices: Tensor, dstMesh: Tensor, 
+                            normalKNN: int=4, batches: int=10, 
+                            maxDisp: float=0.1) -> Tensor: 
+    '''
+    This function computes the displacements of vertices along their normal
+    vectors estimated by the open3d package.
+
+    Parameters
+    ----------
+    srcVertices : Tensor
+        The SMPL vertices, 6890x3.
+    dstMesh : Tensor
+        The mesh of the registered scan, Nx9.
+    normalKNN : int, optional
+        The number of nearest neigbor to estimate normal for vertices.
+        The default is 4.
+    batches : int, optional
+        In order to make memory footprint feasible, we sepqrate the pointcloud 
+        to the given batches. The default is 10.
+    maxDisp : float, optional
+        The maximum acceptable displacements of each vertices. The larger the
+        more points would be involved in filtering so that makes this function 
+        slower.
+        The default is 0.1.
+
+    Returns
+    -------
+    Tensor
+        The displacements of the given pointcloud to the given mesh.
+
+    '''
+    assert srcVertices.shape[1] == 3 and dstMesh.shape[1] == 9, "src Vertices shape should be Nx3; dstMesh should be Nx9."
+    assert (srcVertices.shape[0]/batches).is_integer(), "vertices must divide batches to get an integer."
+    
+    KNNPara = o3d.geometry.KDTreeSearchParamKNN(normalKNN)
+    srcSize = srcVertices.shape[0]
+    dstSize = dstMesh.shape[0]
+
+    # use open3d to estimate normals
+    srcPointCloud = o3d.geometry.PointCloud()
+    srcPointCloud.points = o3d.utility.Vector3dVector(srcVertices)
+    srcPointCloud.estimate_normals(search_param = KNNPara)
+    srcNormal = Tensor(srcPointCloud.normals)
+    
+    # use the Moller Trumbore Algorithm to find the displacements
+    # to reduce memory footprint, we separate the point cloud into batches.
+    P0, P1, P2 = dstMesh[:,:3], dstMesh[:,3:6], dstMesh[:,6:]
+    E1 = P1 - P0
+    E2 = P2 - P0
+
+    fullDisps = []
+    segLength = int(srcSize/batches)
+    for segCnt in range(batches):
+        
+        # get the subset of vertices and normal vectors
+        tempVertices = srcVertices[ segCnt*segLength : (segCnt+1)*segLength, : ]
+        tempNormalVec= srcNormal[ segCnt*segLength : (segCnt+1)*segLength, : ]
+           
+        # intermediate variables
+        S  = tempVertices[:,None,:] - P0[None,:,:]
+        S1 = tempNormalVec[:,None,:].repeat([1,dstSize,1]).cross(E2[None,:,:].repeat([segLength,1,1]))
+        S2 = S.cross(E1[None,:,:].repeat([segLength,1,1]))
+        
+        # auxilary variables
+        reciVec = 1/(S1[:,:,None,:].matmul(E1[None,:,:,None])).squeeze()
+        t_disps = S2[:,:,None,:].matmul(E2[None,:,:,None]).squeeze()
+        b1_disp = S1[:,:,None,:].matmul(S[:,:,:,None]).squeeze()
+        b2_disp = S2[:,:,None,:].matmul(tempNormalVec[:,None,:,None]).squeeze()
+        dispVec = reciVec[None,:,:] * torch.stack( (t_disps, b1_disp, b2_disp), dim = 0)
+        
+        # t: distance to the intersection points
+        # b1 and b2: weight of E1 and E2
+        t, b1, b2 = dispVec[0], dispVec[1], dispVec[2]
+    
+        # filter invalid intersection points outside the triplets and those
+        # are far away from the source points(SMPL vertices)
+        intersection_mask = (b1 > 0).logical_and(b2 > 0).logical_and(b1+b2 < 1).logical_and(t.abs() < maxDisp)
+        
+        # choose the closest displacement if not unique
+        indice = torch.nonzero(intersection_mask)
+        subindice, cnt = torch.unique(indice[:,0], return_counts=True)
+        for ambInd in torch.nonzero(cnt > 1):
+            
+            src_dst_repeat = torch.nonzero(indice[:, 0] == subindice[ambInd])
+            keepsubInd = t[subindice[ambInd], indice[src_dst_repeat,1]].abs().argmin()
+            
+            keepInd = src_dst_repeat[keepsubInd]
+            dropInd = torch.cat( (src_dst_repeat[:keepsubInd], src_dst_repeat[keepsubInd+1:]) )
+
+            indice[dropInd,:] = indice[keepInd, :] 
+            
+        # convert displacements to vectors
+        indice = indice.unique(dim = 0)
+        distance = t[indice[:,0], indice[:,1]] 
+        normals  = tempNormalVec[indice[:,0]]
+        displace = distance[:,None]*normals
+        
+        # fill data
+        partialDisp = torch.zeros(segLength, 3)
+        partialDisp[indice[:,0],:] = displace
+        fullDisps.append( partialDisp )
+    
+    return torch.cat(fullDisps, dim = 0)
 
 
 def meshDifference_pointTopoint(srcVertices: Tensor, dstVertices: Tensor) -> Tensor: 
@@ -154,7 +355,8 @@ def meshDifference_pointTofacet(srcVertices: Tensor, dstTriangulars: Tensor,
     
 
 def computeDisplacement(path_objectFolder: str, path_SMPLmodel: str, 
-                          save: bool = True, device: str = 'cuda'):
+                        dispThreshold: float, save: bool = True, 
+                        device: str = 'cuda'):
     '''
     This function read the given object and SMPL parameter to compute the
     displacement.
@@ -180,15 +382,23 @@ def computeDisplacement(path_objectFolder: str, path_SMPLmodel: str,
     assert isfile(path_SMPLmodel), 'SMPL model not found.'
     assert device in ('cpu', 'cuda'), 'device = %s is not supported.'%device
     ondevice = ('cpu', device) [torch.cuda.is_available()]
-    
+
     # prepare path to files
     objfile = pjn(path_objectFolder, 'smpl_registered.obj')
     regfile = pjn(path_objectFolder, 'registration.pkl')    # smpl model params
-    
+    segfile = pjn(path_objectFolder, 'segmentation.png')    # clothes segmentation 
+    smplObj = pjn('/'.join(path_SMPLmodel.split('/')[:-1]), 'text_uv_coor_smpl.obj')    # clothes segmentation 
+
     # load registered mesh
     dstVertices, Triangle, _, _ = read_Obj(objfile)
     dstTriangulars = dstVertices[Triangle.flatten()].reshape([-1, 9])
-    
+
+    # load segmentaiton and propagate to meshes
+    segmentations  = np.array(Image.open(segfile))
+    smplVert, smplMesh, smpl_text_uv_coord, smpl_text_uv_mesh = read_Obj(smplObj)
+    segmentations  = interpolateTexture(smplVert.shape, smplMesh, segmentations, smpl_text_uv_coord, smpl_text_uv_mesh)
+    # visualizePointCloud(smplVert, segmentations)
+
     # load SMPL parameters and model, transform vertices and joints.
     registration = pickle.load(open(regfile, 'rb'),  encoding='iso-8859-1')
     SMPLmodel = load_model(path_SMPLmodel)
@@ -199,11 +409,14 @@ def computeDisplacement(path_objectFolder: str, path_SMPLmodel: str,
                                   SMPLmodel.weights, SMPLmodel.kintree_table, want_Jtr=True, xp=ch)
     Jtr = Jtr + registration['trans']
     SMPLvert = SMPLvert + registration['trans']
-    
+
     # compute the displacements of vetices of SMPL model
-    P2Pdiff = meshDifference_pointTopoint( Tensor(np.array(SMPLvert)).to(ondevice), Tensor(dstVertices).to(ondevice) )
-    P2Fdiff = meshDifference_pointTofacet( Tensor(np.array(SMPLvert)).to(ondevice), Tensor(dstTriangulars).to(ondevice) )
-    
+    # P2Pdiff = meshDifference_pointTopoint( Tensor(np.array(SMPLvert)).to(ondevice), Tensor(dstVertices).to(ondevice) )
+    # P2Fdiff = meshDifference_pointTofacet( Tensor(np.array(SMPLvert)).to(ondevice), Tensor(dstTriangulars).to(ondevice) )
+    P2PNormDiff = computeNormalGuidedDiff( Tensor(np.array(SMPLvert)).to(ondevice), 
+                                           Tensor(dstTriangulars).to(ondevice),
+                                           Tensor(segmentations).to(ondevice),
+                                           maxDisp = dispThreshold )
     # save as ground truth displacement 
     if save:
         savePath = pjn(path_objectFolder, 'displacement/')
@@ -213,15 +426,33 @@ def computeDisplacement(path_objectFolder: str, path_SMPLmodel: str,
             except OSError as exc: # Guard against race condition
                 if exc.errno != errno.EEXIST:
                     raise
-        with open( pjn(savePath, 'point_to_point_displacements.npy' ), 'wb' ) as f:
-            np.save(f, P2Pdiff)
-        with open( pjn(savePath, 'point_to_facet_displacements.npy' ), 'wb' ) as f:
-            np.save(f, P2Fdiff)
-    
+        with open( pjn(savePath, 'normal_guided_displacements.npy' ), 'wb' ) as f:
+            np.save(f, P2PNormDiff)
 
-def visDisplacement(path_object: str, path_SMPLmodel: str, vis: bool = True,
+
+def visDisplacement(path_object: str, path_SMPLmodel: str,
                     meshDistance: float = 0.5, save: bool = True ):
-    
+    '''
+    This function visualize object file in the given path.
+
+    Parameters
+    ----------
+    path_object : str
+        Path to the folder constaining the object.
+    path_SMPLmodel : str
+        Path to the SMPL model .pkl file.
+    meshDistance : float, optional
+        The distance between meshes. 
+        The default is 0.5.
+    save : bool, optional
+        Whether to save the SMPL+displacements as obj file. 
+        The default is True.
+
+    Returns
+    -------
+    None.
+
+    '''
     assert isfile(path_SMPLmodel), 'SMPL model not found.'
     assert isdir(path_object), 'the path to object folder is invalid.'
     
@@ -243,10 +474,15 @@ def visDisplacement(path_object: str, path_SMPLmodel: str, vis: bool = True,
     # read displacements 
     p2pfile = pjn(path_object, 'displacement/point_to_point_displacements.npy')
     p2ffile = pjn(path_object, 'displacement/point_to_facet_displacements.npy')
+    p2pNormfile = pjn(path_object, 'displacement/normal_guided_displacements.npy')
+    
     p2pDisp = np.load(p2pfile)
     p2fDisp = np.load(p2ffile)
+    p2pNormDisp = np.load(p2pNormfile)
+    
     p2pComp = SMPLvert + p2pDisp - 2*np.array([meshDistance, 0, 0])
     p2fComp = SMPLvert + p2fDisp - 3*np.array([meshDistance, 0, 0])
+    p2pNormComp = SMPLvert + p2pNormDisp - 4*np.array([meshDistance, 0, 0])
     
     # create meshes for visualization
     meshregister = o3d.geometry.TriangleMesh()
@@ -265,8 +501,12 @@ def visDisplacement(path_object: str, path_SMPLmodel: str, vis: bool = True,
     meshSMPLp2f.vertices = o3d.utility.Vector3dVector(p2fComp)
     meshSMPLp2f.triangles= o3d.utility.Vector3iVector(SMPLmodel.f)
     
+    meshSMPLp2pNorm = o3d.geometry.TriangleMesh()
+    meshSMPLp2pNorm.vertices = o3d.utility.Vector3dVector(p2pNormComp)
+    meshSMPLp2pNorm.triangles= o3d.utility.Vector3iVector(SMPLmodel.f)
+    
     mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.6, origin=[0, 0, 0.5])
-    o3d.visualization.draw_geometries([meshregister, meshSMPL, meshSMPLp2p, meshSMPLp2f, mesh_frame])
+    o3d.visualization.draw_geometries([meshregister, meshSMPL, meshSMPLp2p, meshSMPLp2f, mesh_frame, meshSMPLp2pNorm])
 
     if save:
         pathDisplacement = pjn(path_object, 'displacement/')
@@ -274,12 +514,14 @@ def visDisplacement(path_object: str, path_SMPLmodel: str, vis: bool = True,
         o3d.io.write_triangle_mesh( pjn(pathDisplacement, "SMPLposed.obj") , meshSMPL)
         o3d.io.write_triangle_mesh( pjn(pathDisplacement, "SMPLp2pCom.obj"), meshSMPLp2p)
         o3d.io.write_triangle_mesh( pjn(pathDisplacement, "SMPLp2fCom.obj"), meshSMPLp2f)
+        o3d.io.write_triangle_mesh( pjn(pathDisplacement, "SMPLp2pNormCom.obj"), meshSMPLp2pNorm)
+
 
 if __name__ == "__main__":
     
     path_object = '../../datasets/SampleDateset/125611487366942'
-    # computeDisplacement(path_object, 
-    #                       '../../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl',
-    #                       device='cpu')
+    computeDisplacement(path_object, 
+                        '../../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl',
+                        device='cpu', dispThreshold = 0.2)
     
     visDisplacement(path_object, '../../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl', )

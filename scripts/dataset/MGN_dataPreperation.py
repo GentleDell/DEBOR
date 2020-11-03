@@ -236,9 +236,9 @@ if __name__ == "__main__":
     prepareData(cfgs)
     
     # set paths and use blender to render images
-    renderScript = pjn( str(pathlib.Path().absolute().parent), "utils/blender_util.py" )        
-    cachePathAbs = str(pathlib.Path(__file__).parent.absolute())
-    _run_blender(cfgs['blenderPath'], renderPath=renderScript, cachePath = cachePathAbs)
+    # renderScript = pjn( str(pathlib.Path().absolute().parent), "utils/blender_util.py" )        
+    # cachePathAbs = str(pathlib.Path(__file__).parent.absolute())
+    # _run_blender(cfgs['blenderPath'], renderPath=renderScript, cachePath = cachePathAbs)
     
     
     # compute the ground truth displacements; verify the quality of the 
@@ -246,7 +246,7 @@ if __name__ == "__main__":
     for folder in sorted(glob( pjn(cfgs['dataroot'], '*' ) )):
         
         # GT displacements
-        computeDisplacement(folder, cfgs['smplModel'],  device='cpu')
+        computeDisplacement(folder, cfgs['smplModel'],  device='cuda')
         
         # rendering verification and generate boundingbox
         numCameras = cfgs['numCircCameras'] * len(cfgs['camera_heights']) * \
