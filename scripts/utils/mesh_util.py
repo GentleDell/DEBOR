@@ -13,6 +13,7 @@ from os import makedirs
 from os.path import join as pjn, isfile, exists
 import pickle
 import errno
+from math import floor
 
 from PIL import Image
 import torch
@@ -22,9 +23,33 @@ import open3d as o3d
 import numpy as np
 import chumpy as ch
 
-from .vis_util import visDisplacement, read_Obj, interpolateTexture 
+if __name__ == "__main__":    # avoid relative path issue
+    from vis_util import visDisplacement, read_Obj, interpolateTexture, visualizePointCloud
+else:
+    from .vis_util import visDisplacement, read_Obj, interpolateTexture, visualizePointCloud
 from third_party.smpl_webuser.serialization import load_model
 from third_party.smpl_webuser.lbs import verts_core as _verts_core 
+
+
+_neglectParts_ = {'face and hand': (0,0,255),
+                  'foots': (255, 0, 0) }
+
+
+def meshDisplacementFilter(displacements: Tensor, triplets: Tensor, 
+                           threshold: float = 0.06, 
+                           diffThreshold: float = 0.02):
+    
+    suspects = torch.nonzero(displacements.norm(dim=1) > threshold)
+    for pointInd in suspects:
+        NNtriplets = torch.nonzero((triplets == pointInd).sum(dim=1))
+        NNpointsId = triplets[NNtriplets].unique().long()
+        vals, inds = displacements[NNpointsId].norm(dim=1).sort()
+        
+        medianInd  = floor(vals.shape[0]/2) - 1
+        if (displacements[pointInd].norm() - vals[medianInd] ).abs() > diffThreshold:
+            displacements[pointInd] = displacements[ NNpointsId[inds[medianInd]] ]
+            
+    return displacements
 
 
 def computeNormalGuidedDiff(srcVertices: Tensor, dstMesh: Tensor, 
@@ -227,7 +252,9 @@ def meshDifference_pointTofacet(srcVertices: Tensor, dstTriangulars: Tensor,
 
 def computeDisplacement(path_objectFolder: str, path_SMPLmodel: str, 
                         dispThreshold: float, numNearestNeighbor: int,
-                        save: bool = True, device: str = 'cuda'):
+                        onlyCloth: bool = True, NNfiltering: bool = False,
+                        filterThres: float = 0.05, save: bool = True, 
+                        device: str = 'cuda'):
     '''
     This function read the given object and SMPL parameter to compute the
     displacement.
@@ -242,8 +269,12 @@ def computeDisplacement(path_objectFolder: str, path_SMPLmodel: str,
         The maximum acceptable displacements of each vertices. The larger the
         more points would be involved in filtering so that makes this function 
         slower.
-    numNearestNeighbor: 
+    numNearestNeighbor: int
         The number of nearest neigbor to estimate normal for vertices.
+    onlyCloth: bool 
+        Whether only computes the displacements of clothes, i.e. remove the 
+        displacements of unclothed parts.
+        The default is True.
     save : bool, optional
         Whether to save the displacements.
         The default is True.
@@ -271,9 +302,9 @@ def computeDisplacement(path_objectFolder: str, path_SMPLmodel: str,
     dstTriangulars = dstVertices[Triangle.flatten()].reshape([-1, 9])
 
     # load segmentaiton and propagate to meshes
-    # segmentations  = np.array(Image.open(segfile))
-    # smplVert, smplMesh, smpl_text_uv_coord, smpl_text_uv_mesh = read_Obj(smplObj)
-    # segmentations  = interpolateTexture(smplVert.shape, smplMesh, segmentations, smpl_text_uv_coord, smpl_text_uv_mesh)
+    segmentations  = np.array(Image.open(segfile))
+    smplVert, smplMesh, smpl_text_uv_coord, smpl_text_uv_mesh = read_Obj(smplObj)
+    segmentations  = interpolateTexture(smplVert.shape, smplMesh, segmentations, smpl_text_uv_coord, smpl_text_uv_mesh)
     # visualizePointCloud(smplVert, segmentations)
 
     # load SMPL parameters and model, transform vertices and joints.
@@ -281,10 +312,9 @@ def computeDisplacement(path_objectFolder: str, path_SMPLmodel: str,
     SMPLmodel = load_model(path_SMPLmodel)
     SMPLmodel.pose[:]  = registration['pose']
     SMPLmodel.betas[:] = registration['betas']
-
-    [SMPLvert, Jtr] = _verts_core(SMPLmodel.pose, SMPLmodel.v_posed, SMPLmodel.J,  \
+    [SMPLvert, joints] = _verts_core(SMPLmodel.pose, SMPLmodel.v_posed, SMPLmodel.J,  \
                                   SMPLmodel.weights, SMPLmodel.kintree_table, want_Jtr=True, xp=ch)
-    Jtr = Jtr + registration['trans']
+    joints = joints + registration['trans']
     SMPLvert = SMPLvert + registration['trans']
 
     # compute the displacements of vetices of SMPL model
@@ -294,6 +324,19 @@ def computeDisplacement(path_objectFolder: str, path_SMPLmodel: str,
                                            Tensor(dstTriangulars).to(ondevice),
                                            maxDisp = dispThreshold,
                                            normalKNN = numNearestNeighbor)
+    
+    # remove displacements on unclothed parts, e.g. face, hands, foots
+    if onlyCloth:
+        for part, color in _neglectParts_.items():
+            mask = (segmentations[:,0] == color[0])* \
+                   (segmentations[:,1] == color[1])* \
+                   (segmentations[:,2] == color[2])
+            P2PNormDiff[mask] = 0
+    
+    # verify the displacements greater than the threshold by their triplets.
+    if NNfiltering:
+        meshDisplacementFilter(P2PNormDiff, Tensor(smplMesh).to(ondevice), threshold=filterThres)
+        
     # save as ground truth displacement 
     if save:
         savePath = pjn(path_objectFolder, 'displacement/')
@@ -313,7 +356,7 @@ def computeDisplacement(path_objectFolder: str, path_SMPLmodel: str,
 
 if __name__ == "__main__":
     
-    path_object = '../../datasets/SampleDateset/125611494278283'
+    path_object = '../../datasets/SampleDateset/125611487366942'
     computeDisplacement(path_object, 
                         '../../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl',
                         device='cpu', dispThreshold = 0.1, numNearestNeighbor = 10)
