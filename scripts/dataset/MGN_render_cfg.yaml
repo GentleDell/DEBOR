@@ -6,7 +6,7 @@ cachePath: "./"
 blenderPath: "../../../../../Tools/blender-2.90.1-linux64/blender"
 smplModel: "../../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
 
-
+# rendering settings
 numCircCameras: 6
 camera_heights: [0]
 camera_horiz_distance: [6, 8]
@@ -16,3 +16,8 @@ light_power: [1000]
 light_initAngle: 225
 light_heights: [4]
 light_horiz_distance: [4]
+
+# mesh displacements settings
+meshdiff_device: "cpu"
+displacements_threshold: 0.1
+number_nearest_neighbor: 10

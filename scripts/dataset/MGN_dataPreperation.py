@@ -20,6 +20,7 @@ from os.path import join as pjn
 import yaml
 import numpy as np
 import matplotlib.pyplot as plt
+from utils.vis_util import visDisplacement
 from utils.render_util import light, camera, getMaterialPath
 from utils.mesh_util import read_Obj, computeDisplacement
 
@@ -236,9 +237,9 @@ if __name__ == "__main__":
     prepareData(cfgs)
     
     # set paths and use blender to render images
-    # renderScript = pjn( str(pathlib.Path().absolute().parent), "utils/blender_util.py" )        
-    # cachePathAbs = str(pathlib.Path(__file__).parent.absolute())
-    # _run_blender(cfgs['blenderPath'], renderPath=renderScript, cachePath = cachePathAbs)
+    renderScript = pjn( str(pathlib.Path().absolute().parent), "utils/blender_util.py" )        
+    cachePathAbs = str(pathlib.Path(__file__).parent.absolute())
+    _run_blender(cfgs['blenderPath'], renderPath=renderScript, cachePath = cachePathAbs)
     
     
     # compute the ground truth displacements; verify the quality of the 
@@ -246,9 +247,15 @@ if __name__ == "__main__":
     for folder in sorted(glob( pjn(cfgs['dataroot'], '*' ) )):
         
         # GT displacements
-        computeDisplacement(folder, cfgs['smplModel'],  device='cuda')
+        print("computing the GT displacements for: ", folder)
+        computeDisplacement(folder, cfgs['smplModel'],  
+                            device = cfgs['meshdiff_device'], 
+                            dispThreshold = cfgs['displacements_threshold'],
+                            numNearestNeighbor = cfgs['number_nearest_neighbor'])
+        visDisplacement(folder, cfgs['smplModel'], visMesh = False)
         
         # rendering verification and generate boundingbox
+        print("verifying camera parmaeters.")
         numCameras = cfgs['numCircCameras'] * len(cfgs['camera_heights']) * \
                       len(cfgs['camera_horiz_distance']) * len(cfgs['camera_resolution'])
         for cameraIdx in range(numCameras):
