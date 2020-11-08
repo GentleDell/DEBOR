@@ -13,11 +13,25 @@ camera_horiz_distance: [6, 8]
 camera_resolution: [[640, 360]]
 numLight: 4
 light_power: [1000]
-light_initAngle: 225
+light_initAngle: 225   # where to place the first light, on blender coord sys
 light_heights: [4]
 light_horiz_distance: [4]
 
 # mesh displacements settings
-meshdiff_device: "cpu"
-displacements_threshold: 0.1
-number_nearest_neighbor: 10
+meshdiff_device: "cpu"          # on which device to compute the displacements
+number_separation: 46           # separate point cloud to reduce memory usage
+save_displacement: True         # whether to save the computed displament
+show_intermediateMeshes: True   # show all intermediate meshes
+divide_meshToSubmeshes: True    # whether to divide SMPL mesh to submeshes 
+submeshesDivision_iters: 1      # the iterations to divide the SMPL mesh
+submeshesDivision_alg: "simple" # the algorithm to divide the SMPL mesh
+maximum_displacements: 0.1      # the maximum acceptable displacement, [meter]
+number_nearest_neighbor: 10     # the number of NN to estimate normal
+only_reconstruct_cloth: True    # whether to remove disp of unclothed parts
+enable_neighborsfilter: True    # whether to enable NN filtering 
+thresh_neighborsfilter: 0.05    # threshold to specify suspects, [meter]
+thresh_differ_NNfilter: 0.03    # threshold to confirm outliers, [meter]
+fully_neighborsfilter: True     # whether to conduct NN filtering on full body
+neighborsfilter_iters: 1        # the numbe of iterations to conduct filtering
+
+

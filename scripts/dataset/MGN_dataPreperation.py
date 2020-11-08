@@ -22,7 +22,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from utils.vis_util import visDisplacement
 from utils.render_util import light, camera, getMaterialPath
-from utils.mesh_util import read_Obj, computeDisplacement
+from utils.mesh_util import read_Obj, meshDifferentiator
 
 def _run_blender(blenderPath: str, renderPath: str, cachePath: str, stdin=None,
                  stdout=None, stderr=None):
@@ -237,21 +237,19 @@ if __name__ == "__main__":
     prepareData(cfgs)
     
     # set paths and use blender to render images
-    renderScript = pjn( str(pathlib.Path().absolute().parent), "utils/blender_util.py" )        
-    cachePathAbs = str(pathlib.Path(__file__).parent.absolute())
-    _run_blender(cfgs['blenderPath'], renderPath=renderScript, cachePath = cachePathAbs)
+    # renderScript = pjn( str(pathlib.Path().absolute().parent), "utils/blender_util.py" )        
+    # cachePathAbs = str(pathlib.Path(__file__).parent.absolute())
+    # _run_blender(cfgs['blenderPath'], renderPath=renderScript, cachePath = cachePathAbs)
     
     
     # compute the ground truth displacements; verify the quality of the 
     # rendered image and get the bounding box
+    mesh_differ = meshDifferentiator(cfgs)
     for folder in sorted(glob( pjn(cfgs['dataroot'], '*' ) )):
         
         # GT displacements
         print("computing the GT displacements for: ", folder)
-        computeDisplacement(folder, cfgs['smplModel'],  
-                            device = cfgs['meshdiff_device'], 
-                            dispThreshold = cfgs['displacements_threshold'],
-                            numNearestNeighbor = cfgs['number_nearest_neighbor'])
+        mesh_differ.computeDisplacement(folder)
         visDisplacement(folder, cfgs['smplModel'], visMesh = False)
         
         # rendering verification and generate boundingbox
