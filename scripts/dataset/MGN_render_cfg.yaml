@@ -6,18 +6,22 @@ cachePath: "./"
 blenderPath: "../../../../../Tools/blender-2.90.1-linux64/blender"
 smplModel: "../../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
 
+requireConfirm: True            # require confirmation before executing 
+
 # rendering settings
-numCircCameras: 6
-camera_heights: [0]
-camera_horiz_distance: [6, 8]
-camera_resolution: [[640, 360]]
-numLight: 4
-light_power: [1000]
-light_initAngle: 225   # where to place the first light, on blender coord sys
-light_heights: [4]
-light_horiz_distance: [4]
+enable_rendering: False          # enable rendering; if not, skip rendering
+numCircCameras: 6               # the number of cameras around the body
+camera_heights: [0]             # the heights of cameras
+camera_horiz_distance: [6, 8]   # horizontal distance of cameras to Z axis
+camera_resolution: [[640, 360]] # the camera resolutions of cameras
+numLight: 4                     # the number of light
+light_power: [1000]             # the power of lights
+light_initAngle: 225            # angle of the first light [blender coord sys]
+light_heights: [4]              # the height of the lights
+light_horiz_distance: [4]       # horizontal distance of the lights
 
 # mesh displacements settings
+enable_displacement: False       # enable GT displacements computation 
 meshdiff_device: "cpu"          # on which device to compute the displacements
 number_separation: 46           # separate point cloud to reduce memory usage
 save_displacement: True         # whether to save the computed displament

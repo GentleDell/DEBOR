@@ -219,7 +219,7 @@ def boundingbox(imagefolder: str, cameraIdx: int = 0, marginSize: int = 25):
 if __name__ == "__main__":
     '''
     Renderning images for meshes of the MGN dataset and compute the ground 
-    truth displacements of vertices.
+    truth displacements for vertices.
     '''
     # parse arguments
     parser = argparse.ArgumentParser()
@@ -231,16 +231,23 @@ if __name__ == "__main__":
     # read render configurations
     with open(args.render_cfg) as f:
         cfgs = yaml.load(f, Loader=yaml.FullLoader)
-        print('\nRendering configurations:\n', cfgs)    
-
+        print('\nRendering configurations:\n')
+        for key, val in cfgs.items():
+            print('%-25s:'%(key), val)    
+    
+    # require confirmation
+    if cfgs['requireConfirm']:
+        msg = 'Do you confirm that the settings are correct?'
+        assert input("%s (Y/N) " % msg).lower() == 'y', 'Settings are not comfirmed.'
+        
     # prepare the data for rendering
     prepareData(cfgs)
     
     # set paths and use blender to render images
-    # renderScript = pjn( str(pathlib.Path().absolute().parent), "utils/blender_util.py" )        
-    # cachePathAbs = str(pathlib.Path(__file__).parent.absolute())
-    # _run_blender(cfgs['blenderPath'], renderPath=renderScript, cachePath = cachePathAbs)
-    
+    if cfgs['enable_rendering']:
+        renderScript = pjn( str(pathlib.Path().absolute().parent), "utils/blender_util.py" )        
+        cachePathAbs = str(pathlib.Path(__file__).parent.absolute())
+        _run_blender(cfgs['blenderPath'], renderPath=renderScript, cachePath = cachePathAbs)
     
     # compute the ground truth displacements; verify the quality of the 
     # rendered image and get the bounding box
@@ -248,16 +255,18 @@ if __name__ == "__main__":
     for folder in sorted(glob( pjn(cfgs['dataroot'], '*' ) )):
         
         # GT displacements
-        print("computing the GT displacements for: ", folder)
-        mesh_differ.computeDisplacement(folder)
-        visDisplacement(folder, cfgs['smplModel'], visMesh = False)
+        if cfgs['enable_displacement']:
+            print("computing the GT displacements for: ", folder)
+            mesh_differ.computeDisplacement(folder)
+            visDisplacement(folder, cfgs['smplModel'], visMesh = False)
         
         # rendering verification and generate boundingbox
-        print("verifying camera parmaeters.")
-        numCameras = cfgs['numCircCameras'] * len(cfgs['camera_heights']) * \
-                      len(cfgs['camera_horiz_distance']) * len(cfgs['camera_resolution'])
-        for cameraIdx in range(numCameras):
-            boundingbox( pjn(folder, 'rendering'), cameraIdx, marginSize = 25)
+        if cfgs['enable_rendering']:
+            print("verifying camera parmaeters.")
+            numCameras = cfgs['numCircCameras'] * len(cfgs['camera_heights']) * \
+                          len(cfgs['camera_horiz_distance']) * len(cfgs['camera_resolution'])
+            for cameraIdx in range(numCameras):
+                boundingbox( pjn(folder, 'rendering'), cameraIdx, marginSize = 25)
     
     
     
