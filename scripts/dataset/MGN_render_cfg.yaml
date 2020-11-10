@@ -20,13 +20,16 @@ light_initAngle: 225            # angle of the first light [blender coord sys]
 light_heights: [4]              # the height of the lights
 light_horiz_distance: [4]       # horizontal distance of the lights
 
+
 # mesh displacements settings
-enable_displacement: False       # enable GT displacements computation 
+enable_displacement: True       # enable GT displacements computation 
 meshdiff_device: "cpu"          # on which device to compute the displacements
-number_separation: 46           # separate point cloud to reduce memory usage
+number_separation: 10           # separate point cloud to reduce memory usage
 save_displacement: True         # whether to save the computed displament
-show_intermediateMeshes: True   # show all intermediate meshes
-divide_meshToSubmeshes: True    # whether to divide SMPL mesh to submeshes 
+show_intermediateMeshes: False   # show all intermediate meshes
+
+divide_meshToSubmeshes: False    # whether to divide SMPL mesh to submeshes 
+textureGap_threshold: 0.03      # threshold to correct texture gap after dvd 
 submeshesDivision_iters: 1      # the iterations to divide the SMPL mesh
 submeshesDivision_alg: "simple" # the algorithm to divide the SMPL mesh
 maximum_displacements: 0.1      # the maximum acceptable displacement, [meter]

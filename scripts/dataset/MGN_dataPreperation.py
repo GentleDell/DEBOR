@@ -24,6 +24,7 @@ from utils.vis_util import visDisplacement
 from utils.render_util import light, camera, getMaterialPath
 from utils.mesh_util import read_Obj, meshDifferentiator
 
+
 def _run_blender(blenderPath: str, renderPath: str, cachePath: str, stdin=None,
                  stdout=None, stderr=None):
     '''

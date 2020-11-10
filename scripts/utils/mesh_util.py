@@ -16,12 +16,13 @@ import errno
 from math import floor
 
 import yaml
-from PIL import Image
 import torch
 from torch import Tensor
 
 import open3d as o3d
 import numpy as np
+from numpy import array
+from scipy import interpolate
 import chumpy as ch
 
 if __name__ == "__main__":    # avoid relative path issue
@@ -34,7 +35,6 @@ from third_party.smpl_webuser.lbs import verts_core as _verts_core
 
 _neglectParts_ = {'face and hand': (0,0,255),
                   'foots': (255, 0, 0) }
-
 
 class meshDifferentiator():
     '''
@@ -88,6 +88,7 @@ class meshDifferentiator():
         self.enable_meshdvd = cfg['divide_meshToSubmeshes']
         self.meshdvd_iters  = cfg['submeshesDivision_iters']
         self.meshdvd_algor  = cfg['submeshesDivision_alg']
+        self.meshdvd_thres  = cfg['textureGap_threshold']
         
         # settings to compute displacements
         self.max_displacement   = cfg['maximum_displacements']
@@ -106,28 +107,226 @@ class meshDifferentiator():
         assert self.meshdvd_algor in ('simple', 'loop'), 'only support simple and loop upsampling method.'
         
 
-    def meshUpsampleO3D(self, vertIn: Tensor, tripletsIn: Tensor, method: str,
-                        numIters: int = 1, visMesh: bool = False) -> tuple:
-    
-        mesh_in = o3d.geometry.TriangleMesh()
-        mesh_in.vertices = o3d.utility.Vector3dVector(vertIn)
-        mesh_in.triangles= o3d.utility.Vector3iVector(tripletsIn)   
-        mesh_in.compute_vertex_normals()
+    def meshUVcoordUpsample(self, mesh_orig: o3d.geometry.TriangleMesh,
+                            mesh_dvd: o3d.geometry.TriangleMesh, 
+                            ) -> o3d.geometry.TriangleMesh:
+        '''
+        This function upsamplea the triangle UVs of the given triangle mesh.
         
+        We follow a simple ideal to interpolate the UV coords of newly sampled 
+        points. For example, d is the upsampled midpoint of edge AB, then we
+        pick UV_d = (UV_A + UV_B)/2.
+        
+        But this brings inconsistency to the upsampled textures since textures
+        on the UV image is inconsistent. So, a correction is conducted to keep
+        the color of [vertices] correct.
+
+        Parameters
+        ----------
+        mesh_orig : o3d.geometry.TriangleMesh
+            The unsampled original open3d triangle mesh.
+        mesh_dvd : o3d.geometry.TriangleMesh
+            The upsampled open3d triangle mesh, its UVs are to be sampled.
+
+        Returns
+        -------
+        mesh_dvd : o3d.geometry.TriangleMesh
+            The upsampled open3d triangle mesh and its UVs are sampled too.
+
+        '''
+        mesh_dvd.textures = mesh_orig.textures
+        
+        tempIndices = np.asarray(mesh_dvd.triangles)
+        tempTriUVs  = np.asarray(mesh_orig.triangle_uvs)
+        tempTriInds = np.asarray(mesh_orig.triangles).flatten()
+        
+        # get the UV coords of all vertices of the original mesh
+        _, indices = np.unique(tempTriInds, return_index=True)
+        origColorUV = tempTriUVs[indices]
+        
+        # the way that open3d upsamples triangle mid points
+        # Triangle ABC: AB -> d, BC -> e, CA -> f; 1 triangle -> 4 triangle.
+        # ABC => [Adf, dBe, eCf, def]
+        A_, B_, C_ = tempIndices[::4,0], tempIndices[1::4,1], tempIndices[2::4,1]
+        d_, e_, f_ = tempIndices[::4,1], tempIndices[1::4,2], tempIndices[ ::4,2]
+        
+        # mid points of triangle -> mid points on texture UV coordinate sys
+        UV_A, UV_B, UV_C = origColorUV[A_], origColorUV[B_], origColorUV[C_]
+        uv_d, uv_e, uv_f = (UV_A + UV_B)/2, (UV_B + UV_C)/2, (UV_C + UV_A)/2
+        
+        # correct texture gap
+        invalid = np.linalg.norm(UV_A - UV_B, axis = 1) > self.meshdvd_thres
+        uv_d[invalid] = UV_A[invalid] + 0*(UV_B[invalid] - UV_A[invalid])
+        invalid = np.linalg.norm(UV_B - UV_C, axis = 1) > self.meshdvd_thres                   
+        uv_e[invalid] = UV_B[invalid] + 0*(UV_C[invalid] - UV_B[invalid])
+        invalid = np.linalg.norm(UV_C - UV_A, axis = 1) > self.meshdvd_thres
+        uv_f[invalid] = UV_C[invalid] + 0*(UV_A[invalid] - UV_C[invalid])
+        
+        # orgnize the upsampled vertices and triangles
+        allVertice = np.vstack([A_, B_, C_, d_, e_, f_]).flatten()
+        allTextUVs = np.vstack([UV_A, UV_B, UV_C, uv_d, uv_e, uv_f])
+        
+        # get the UVs of all triangles of the upsampled mesh
+        _, vertexInds = np.unique( allVertice, return_index = True)
+        verticeTxtUVs = allTextUVs[vertexInds]
+        triangularUVs = verticeTxtUVs[tempIndices.flatten()]
+        
+        # set material index for all vertices for visualization
+        material_Idx  = o3d.utility.IntVector(torch.zeros(tempIndices.shape[0]).int())
+        mesh_dvd.triangle_material_ids = material_Idx
+        
+        # set the triangle_uvs
+        mesh_dvd.triangle_uvs = o3d.utility.Vector2dVector(triangularUVs)
+        
+        return mesh_dvd
+
+
+    def meshVertexColorInterp(self, texture: array, vertUVs: array, algorithm: str) -> array:
+        '''
+        This function interpolates the texture/color of each vertex according 
+        to the given texture and vertUVs coordinate, with the required algo.
+
+        Parameters
+        ----------
+        texture : array
+            The texture image, [WxHx3].
+        vertUVs : array
+            The UV coordinate of each vertex, [Nx2\.
+        algorithm : str
+            The algorithm to be used for interpolation. \n
+            'nearestNeighbors': faster and less memory demanding, but rough.\n
+            'linear': slower and more memory demanding, but more accurate.\n
+            'cubic': slowest and most memory demanding, but most accurate.
+
+        Returns
+        -------
+        array
+            The interpolated color of vertices, [Nx3].
+
+        '''
+        assert algorithm in ('nearestNeighbors', 'cubic', 'linear'), \
+            "only support nearestNeighbors, cubic and linear."
+        
+        # prepare coodinate
+        # Here we assume that the color is at the center of a pixel
+        UV_size = texture.shape[0]
+        x = np.linspace(1/UV_size/2, 1-1/UV_size/2, UV_size, endpoint=True)
+        y = np.linspace(1/UV_size/2, 1-1/UV_size/2, UV_size, endpoint=True)
+        meshColor = np.zeros([vertUVs.shape[0], 3])
+        
+        xg, yg = np.meshgrid(x,y)
+        coords = np.stack([xg.flatten(), yg.flatten()], axis = 1)
+        
+        # interpolate the texture
+        if algorithm == 'nearestNeighbors':
+            # interp = interpolate.NearestNDInterpolator(coords, texture.reshape(-1, 3))
+            meshColor = interpolate.griddata(coords, texture.reshape(-1, 3), (vertUVs[:,0], vertUVs[:,1]), method='nearest')
+        elif algorithm == 'linear':
+            # interp = interpolate.LinearNDInterpolator(coords, texture.reshape(-1, 3))
+            meshColor = interpolate.griddata(coords, texture.reshape(-1, 3), (vertUVs[:,0], vertUVs[:,1]), method='linear')
+        else:
+            meshColor = interpolate.griddata(coords, texture.reshape(-1, 3), (vertUVs[:,0], vertUVs[:,1]), method='cubic')
+        
+        return meshColor
+            
+    
+    def colorMeshVertices(self, mesh_in: o3d.geometry.TriangleMesh, 
+                          showColor: bool) -> tuple:
+        '''
+        Given the open3d triangle mesh, this function outputs the textures and
+        segmentations of vertices.
+
+        Parameters
+        ----------
+        mesh_in : o3d.geometry.TriangleMesh
+            The mesh to compute the vertex_colors. This mesh must have texture
+            and segmentations
+        showColor : bool
+            Whether to show the interpolated colors and segmentations.
+
+        Returns
+        -------
+        tuple
+            (interpTexture, interpSegment).
+
+        '''
+        texture = np.asarray(mesh_in.textures[0])
+        segment = np.asarray(mesh_in.textures[1])
+        tripUVs = np.asarray(mesh_in.triangle_uvs)
+        triplet = np.asarray(mesh_in.triangles).flatten()
+        
+        _, indices = np.unique(triplet, return_index=True)
+        vertTextUV = tripUVs[indices]
+        
+        interpTexture = self.meshVertexColorInterp(texture, vertTextUV, 'linear')         
+        interpSegment = self.meshVertexColorInterp(segment, vertTextUV, 'nearestNeighbors')   
+        
+        if showColor:
+            
+            print('displaying the interploated texture and segmentation.')
+            
+            mesh_show_txt = o3d.geometry.TriangleMesh()
+            mesh_show_txt.vertices = mesh_in.vertices
+            mesh_show_txt.triangles= mesh_in.triangles       
+            mesh_show_txt.vertex_colors = o3d.utility.Vector3dVector(interpTexture/255)
+            
+            mesh_show_clr = o3d.geometry.TriangleMesh()
+            mesh_show_clr.vertices = o3d.utility.Vector3dVector( np.asarray(mesh_in.vertices) + np.array([0.6,0,0]) )
+            mesh_show_clr.triangles= mesh_in.triangles       
+            mesh_show_clr.vertex_colors = o3d.utility.Vector3dVector(interpSegment/255)
+            
+            o3d.visualization.draw_geometries([mesh_show_txt, mesh_show_clr])
+            
+        return (interpTexture, interpSegment)
+
+
+    def meshUpsampleO3D(self, mesh_in: o3d.geometry.TriangleMesh, method: str,
+                        numIters: int = 1, visMesh: bool = False, 
+                        ) -> o3d.geometry.TriangleMesh:
+        '''
+        This function uses open3D to upsample the given mesh, i.e. vertices 
+        and triangles, and triangle UVs (as open3d does not support this yet).
+        
+        method: 
+            'Simple' = for each triplet, using the mid point of each edge as 
+                       vertices to subdivide the tirplet into 4 triplets. The 
+                       shape of the mesh would not change.
+                       
+            'Loop'   = use the algorithm poubished by loop, which will change 
+                       the shape of the mesh to make it C2 continuous.
+
+        Parameters
+        ----------
+        mesh_in : o3d.geometry.TriangleMesh
+            The open3d mesh object to be upsampled.
+        method : str
+            The algorithm to upsample the mesh.
+        numIters : int, optional
+            The number of iterations of upsampling; 1 iter = 4 times denser
+            The default is 1.
+        visMesh : bool, optional
+            Wehter to visualize the input and upsampled mesh.
+            The default is False.
+
+        Returns
+        -------
+        o3d.geometry.TriangleMesh
+            The upsampled open3d mesh object.
+
+        '''        
         if method == 'simple':
             mesh_dvd = mesh_in.subdivide_midpoint(number_of_iterations=numIters)
         elif method == 'loop':
             mesh_dvd = mesh_in.subdivide_loop(number_of_iterations=numIters)
         
+        mesh_dvd = self.meshUVcoordUpsample(mesh_in, mesh_dvd)
+                
         if visMesh:
-            print('Upsample algorithm: %s \nmeshin(right) and the upsampled meshout (left)'%method)
-            mesh_in.vertices = o3d.utility.Vector3dVector(vertIn + Tensor([0.6,0,0]))
+            print('\n\nUpsample algorithm: %s \nmeshin(right) and the upsampled meshout (left)'%method)
+            mesh_in.vertices = o3d.utility.Vector3dVector(np.asarray(mesh_in.vertices) + np.array([0.6,0,0]))
             o3d.visualization.draw_geometries([mesh_dvd, mesh_in])
         
-        vertout = Tensor(np.asarray(mesh_dvd.vertices))
-        tripout = Tensor(np.asarray(mesh_dvd.triangles))
-        
-        return (vertout, tripout)
+        return mesh_dvd
         
 
     def meshFilterO3D(self, displacements: Tensor, bodyVert: Tensor, triplets,
@@ -397,55 +596,59 @@ class meshDifferentiator():
         objfile = pjn(path_objectFolder, 'smpl_registered.obj')
         regfile = pjn(path_objectFolder, 'registration.pkl')    # smpl model params
         segfile = pjn(path_objectFolder, 'segmentation.png')    # clothes segmentation 
+        txtfile = pjn(path_objectFolder, 'registered_tex.jpg')  # body texture
         smplObj = pjn('/'.join(self.path_SMPLmodel.split('/')[:-1]), 'text_uv_coor_smpl.obj')
     
-        # load registered mesh
+        # load original SMPL .obj file, to get the triplets and uv coord
+        smplVert, smplMesh, smpl_text_uv_coord, smpl_text_uv_mesh = read_Obj(smplObj)
+        smpl_text_uv_coord[:, 1] = 1 - smpl_text_uv_coord[:, 1]    # SMPL .obj need this conversion
+
+        # load the target registered mesh
         dstVertices, Triangle, _, _ = read_Obj(objfile)
         dstTriangulars = Tensor(dstVertices[Triangle.flatten()].reshape([-1, 9])).to(ondevice)
     
-        # load segmentaiton and propagate to meshes
-        segmentations  = np.array(Image.open(segfile))
-        smplVert, smplMesh, smpl_text_uv_coord, smpl_text_uv_mesh = read_Obj(smplObj)
-        segmentations  = interpolateTexture(smplVert.shape, smplMesh, 
-                                            segmentations, smpl_text_uv_coord, 
-                                            smpl_text_uv_mesh)
-        smplMesh = Tensor(smplMesh).to(ondevice)
-        # visualizePointCloud(smplVert, segmentations)
-    
-        # load SMPL parameters and model, transform vertices and joints.
+        # load SMPL parameters and model; transform vertices and joints.
         registration = pickle.load(open(regfile, 'rb'),  encoding='iso-8859-1')
-        SMPLmodel = load_model(self.path_SMPLmodel)
-        SMPLmodel.pose[:]  = registration['pose']
-        SMPLmodel.betas[:] = registration['betas']
-        [SMPLvert, joints] = _verts_core(SMPLmodel.pose, SMPLmodel.v_posed, SMPLmodel.J,  \
-                                      SMPLmodel.weights, SMPLmodel.kintree_table, want_Jtr=True, xp=ch)
-        joints = joints + registration['trans']
-        SMPLvert = Tensor(np.array(SMPLvert + registration['trans'])).to(ondevice)
-    
+        SMPLvert_posed, joints = generateSMPLmesh(
+            self.path_SMPLmodel, registration['pose'], 
+            registration['betas'], registration['trans'],
+            asTensor=True, device = ondevice)
+        
+        # create open3d body mesh
+        bodyMesh_o3d = create_fullO3DMesh(
+            SMPLvert_posed, smplMesh, txtfile, segfile, smpl_text_uv_coord, 
+            smpl_text_uv_mesh, show_mesh=self.enable_plots)
+        
+        # upsample the SMPL mesh and triangle_UVs (ours)
         if self.enable_meshdvd:
-            SMPLvert, smplMesh = self.meshUpsampleO3D(
-                                    SMPLvert, smplMesh, self.meshdvd_algor, 
-                                    self.meshdvd_iters, self.enable_plots)
+            bodyMesh_o3d = self.meshUpsampleO3D(bodyMesh_o3d, self.meshdvd_algor, 
+                                                self.meshdvd_iters, self.enable_plots)
+    
+        # interpolate color for all vertices
+        colorVertices, segmentations = self.colorMeshVertices(bodyMesh_o3d, self.enable_plots)
     
         # compute the displacements of vetices of SMPL model
-        P2PNormDiff = self.computeNormalGuidedDiff( SMPLvert, dstTriangulars )
+        P2PNormDiff = self.computeNormalGuidedDiff( Tensor(array(bodyMesh_o3d.vertices)), dstTriangulars )
         
         # verify the displacements greater than the threshold by their triplets.
         if self.NNfiltering:
-            P2PNormDiff = self.meshDisplacementFilter(P2PNormDiff, smplMesh,
-                                SMPLvert, self.NNfilterIters, self.enable_plots)
+            P2PNormDiff = self.meshDisplacementFilter(
+                            P2PNormDiff, 
+                            Tensor(array(bodyMesh_o3d.triangles)),
+                            Tensor(array(bodyMesh_o3d.vertices)), 
+                            self.NNfilterIters, self.enable_plots)
         
         # remove displacements on unclothed parts, e.g. face, hands, foots
-        if self.onlyCloth:
+        if self.onlyCloth:        
             for part, color in _neglectParts_.items():
                 mask = (segmentations[:,0] == color[0])* \
                        (segmentations[:,1] == color[1])* \
                        (segmentations[:,2] == color[2])
                 P2PNormDiff[mask] = 0
                     
-        # save as ground truth displacement 
+        # save as ground truth displacement and color
         if self.save:
-            savePath = pjn(path_objectFolder, 'displacement/')
+            savePath = pjn(path_objectFolder, 'GroundTruth/')
             if not exists(savePath):
                 try:
                     makedirs(savePath)
@@ -453,9 +656,131 @@ class meshDifferentiator():
                     if exc.errno != errno.EEXIST:
                         raise        
             print('Saving dispalcements of: ', path_objectFolder)
-            with open( pjn(savePath, 'normal_guided_displacements.npy' ), 'wb' ) as f:
+            with open( pjn(savePath, 'normal_guided_displacements_oversample_%s.npy' \
+                           %(['OFF', 'ON'][self.enable_meshdvd]) ), 'wb' ) as f:
                 np.save(f, P2PNormDiff)
+
+            print('Saving its textures/colors')
+            with open( pjn(savePath, 'vertex_colors_oversample_%s.npy' \
+                           %(['OFF', 'ON'][self.enable_meshdvd]) ), 'wb' ) as f:
+                np.save(f, colorVertices)
                 
+            print('Saving its segmentations')
+            with open( pjn(savePath, 'segmentations_oversample_%s.npy' \
+                           %(['OFF', 'ON'][self.enable_meshdvd]) ), 'wb' ) as f:
+                np.save(f, segmentations)
+            
+
+def create_fullO3DMesh(vertices: Tensor, triangles: Tensor, texturePath: str,
+                       segmentationPath: str, triangles_uv: Tensor, 
+                       smpl_text_uv_mesh: Tensor, show_mesh: bool
+                       ) -> o3d.geometry.TriangleMesh:
+    '''
+    This function creates a open3d triangular mesh object with vertices, edges,
+    textures, segmentations. 
+    
+    WARNING: triangle uvs are not handled in this function. This feature is 
+    on the roadmap of open3d team.
+
+    Parameters
+    ----------
+    vertices : Tensor
+        The vertices of the mesh.
+    triangles : Tensor
+        The edges of the mesh.
+    texturePath : str
+        The path to the textures.
+    segmentationPath : str
+        The path to the segmentation.
+    triangles_uv : Tensor
+        the uv coordiante.
+    smpl_text_uv_mesh : Tensor
+        The indices of uv coordinates corresponding to the triangles.
+    show_mesh : bool
+        Whether to show the created mesh.
+
+    Returns
+    -------
+    o3dMesh : TYPE
+        DESCRIPTION.
+
+    '''
+    # load textures 
+    textureImage = o3d.geometry.Image( o3d.io.read_image(texturePath) )
+    segmentImage = o3d.geometry.Image( o3d.io.read_image(segmentationPath) )
+    texture_UVs  = triangles_uv[smpl_text_uv_mesh.flatten(), :]
+    texture_Idx  = o3d.utility.IntVector(torch.zeros(triangles.shape[0]).int())    # [numTriangle, 1]
+
+    o3dMesh = o3d.geometry.TriangleMesh()
+    o3dMesh.vertices = o3d.utility.Vector3dVector(vertices)
+    o3dMesh.triangles= o3d.utility.Vector3iVector(triangles) 
+    o3dMesh.textures = [o3d.geometry.Image(textureImage), 
+                        o3d.geometry.Image(segmentImage)]
+    o3dMesh.triangle_uvs = o3d.utility.Vector2dVector(texture_UVs)
+    o3dMesh.triangle_material_ids = texture_Idx
+    
+    o3dMesh.compute_vertex_normals()
+    
+    if show_mesh:
+        o3d.visualization.draw_geometries([o3dMesh])
+        
+    return o3dMesh
+
+
+def generateSMPLmesh(path_toSMPL: str, pose: array, beta: array, trans: array,
+                     asTensor: bool = True, device: str = 'cpu' ) -> tuple:
+    '''
+    This function reads the SMPL model in the given path and then poses and 
+    reshapes the mesh. 
+
+    Parameters
+    ----------
+    path_toSMPL : str
+        Path to the SMPL model.
+    pose : array
+        The poses of joints.
+    beta : array
+        The parameters of body shape.
+    trans : array
+        The global translation of the mesh.
+    asTensor : bool, optional
+        Output the mesh as Tensor. 
+        The default is True.
+    device : str, optional
+        The device to store the mesh, only vaild when asTensor is Ture. 
+        The default is 'cpu'.
+
+    Returns
+    -------
+    tuple
+        Tuple of SMPL mesh and SMPL joints.
+
+    '''
+    assert isfile(path_toSMPL), 'SMPL model not found.'
+    assert device in ('cpu', 'cuda'), 'device = %s is not supported.'%device
+    
+    # read SMPL model and set SMPL parameters
+    SMPLmodel = load_model(path_toSMPL)
+    SMPLmodel.pose[:]  = pose
+    SMPLmodel.betas[:] = beta
+    
+    # blender the mesh 
+    [SMPLvert, joints] = _verts_core(SMPLmodel.pose, SMPLmodel.v_posed, SMPLmodel.J,  \
+                                  SMPLmodel.weights, SMPLmodel.kintree_table, want_Jtr=True, xp=ch)
+    joints = np.array(joints + trans)
+    SMPLvert = np.array(SMPLvert + trans)
+
+    if asTensor:
+        joints   = Tensor(joints).to(device)
+        SMPLvert = Tensor(SMPLvert).to(device)
+        
+    return (SMPLvert, joints)
+
+
+def verifyOneDisplacement(path_object: str):
+    
+    return None
+
 
 if __name__ == "__main__":
     
@@ -463,9 +788,11 @@ if __name__ == "__main__":
     
     with open('../dataset/MGN_render_cfg.yaml') as f:
         cfgs = yaml.load(f, Loader=yaml.FullLoader)
-        print('\nRendering configurations:\n', cfgs)   
+        print('\nRendering configurations:\n')
+        for key, val in cfgs.items():
+            print('%-25s:'%(key), val)   
     
     mesh_differ = meshDifferentiator(cfgs)
     mesh_differ.computeDisplacement(path_object)
     
-    visDisplacement(path_object, cfgs['smplModel'], visMesh = True)
+    visDisplacement(path_object, cfgs['smplModel'], visMesh = True, save=False)

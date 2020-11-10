@@ -111,7 +111,7 @@ def visDisplacement(path_object: str, path_SMPLmodel: str, visMesh: bool,
     # read displacements 
     # p2pfile = pjn(path_object, 'displacement/p2p_displacements.npy')
     # p2ffile = pjn(path_object, 'displacement/p2f_displacements.npy')
-    p2pNormfile = pjn(path_object, 'displacement/normal_guided_displacements.npy')
+    p2pNormfile = pjn(path_object, 'GroundTruth/normal_guided_displacements_oversample_OFF.npy')
     
     # p2pDisp = np.load(p2pfile)
     # p2fDisp = np.load(p2ffile)
@@ -148,7 +148,7 @@ def visDisplacement(path_object: str, path_SMPLmodel: str, visMesh: bool,
         o3d.visualization.draw_geometries([meshregister, meshSMPL, mesh_frame, meshSMPLp2pNorm])
 
     if save:
-        pathDisplacement = pjn(path_object, 'displacement/')
+        pathDisplacement = pjn(path_object, 'GroundTruth/')
         o3d.io.write_triangle_mesh( pjn(pathDisplacement, "registered.obj"), meshregister)
         o3d.io.write_triangle_mesh( pjn(pathDisplacement, "SMPLposed.obj") , meshSMPL)
         # o3d.io.write_triangle_mesh( pjn(pathDisplacement, "SMPLp2pCom.obj"), meshSMPLp2p)
