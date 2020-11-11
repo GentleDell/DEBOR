@@ -258,12 +258,12 @@ class meshDifferentiator():
         _, indices = np.unique(triplet, return_index=True)
         vertTextUV = tripUVs[indices]
         
-        interpTexture = self.meshVertexColorInterp(texture, vertTextUV, 'linear')         
+        interpTexture = self.meshVertexColorInterp(texture, vertTextUV, 'cubic')         
         interpSegment = self.meshVertexColorInterp(segment, vertTextUV, 'nearestNeighbors')   
         
         if showColor:
             
-            print('displaying the interploated texture and segmentation.')
+            print('\ndisplaying the interploated texture and segmentation.')
             
             mesh_show_txt = o3d.geometry.TriangleMesh()
             mesh_show_txt.vertices = mesh_in.vertices
@@ -294,6 +294,10 @@ class meshDifferentiator():
                        
             'Loop'   = use the algorithm poubished by loop, which will change 
                        the shape of the mesh to make it C2 continuous.
+                       
+        WARNING: triangle uvs are not handled in open3d subdivide function. It
+                 is on the roadmap of open3d team. So, here we implemented 
+                 UV upsampling by ourselves.
 
         Parameters
         ----------
@@ -600,9 +604,10 @@ class meshDifferentiator():
         smplObj = pjn('/'.join(self.path_SMPLmodel.split('/')[:-1]), 'text_uv_coor_smpl.obj')
     
         # load original SMPL .obj file, to get the triplets and uv coord
-        smplVert, smplMesh, smpl_text_uv_coord, smpl_text_uv_mesh = read_Obj(smplObj)
+        _, smplMesh, smpl_text_uv_coord, smpl_text_uv_mesh = read_Obj(smplObj)
         smpl_text_uv_coord[:, 1] = 1 - smpl_text_uv_coord[:, 1]    # SMPL .obj need this conversion
-
+        triangle_uvs = smpl_text_uv_coord[smpl_text_uv_mesh.flatten()]
+        
         # load the target registered mesh
         dstVertices, Triangle, _, _ = read_Obj(objfile)
         dstTriangulars = Tensor(dstVertices[Triangle.flatten()].reshape([-1, 9])).to(ondevice)
@@ -610,14 +615,11 @@ class meshDifferentiator():
         # load SMPL parameters and model; transform vertices and joints.
         registration = pickle.load(open(regfile, 'rb'),  encoding='iso-8859-1')
         SMPLvert_posed, joints = generateSMPLmesh(
-            self.path_SMPLmodel, registration['pose'], 
-            registration['betas'], registration['trans'],
-            asTensor=True, device = ondevice)
+            self.path_SMPLmodel, registration['pose'], registration['betas'], 
+            registration['trans'], asTensor=True, device = ondevice)
         
         # create open3d body mesh
-        bodyMesh_o3d = create_fullO3DMesh(
-            SMPLvert_posed, smplMesh, txtfile, segfile, smpl_text_uv_coord, 
-            smpl_text_uv_mesh, show_mesh=self.enable_plots)
+        bodyMesh_o3d = create_fullO3DMesh(SMPLvert_posed, smplMesh, txtfile, segfile, triangle_uvs, use_text=True)
         
         # upsample the SMPL mesh and triangle_UVs (ours)
         if self.enable_meshdvd:
@@ -672,16 +674,14 @@ class meshDifferentiator():
             
 
 def create_fullO3DMesh(vertices: Tensor, triangles: Tensor, texturePath: str,
-                       segmentationPath: str, triangles_uv: Tensor, 
-                       smpl_text_uv_mesh: Tensor, show_mesh: bool
+                       segmentationPath: str, triangle_UVs: Tensor = None,
+                       vertexcolor: Tensor = None, use_text: bool=False, 
+                       use_vertex_color: bool = False,
                        ) -> o3d.geometry.TriangleMesh:
     '''
     This function creates a open3d triangular mesh object with vertices, edges,
     textures, segmentations. 
     
-    WARNING: triangle uvs are not handled in this function. This feature is 
-    on the roadmap of open3d team.
-
     Parameters
     ----------
     vertices : Tensor
@@ -692,38 +692,51 @@ def create_fullO3DMesh(vertices: Tensor, triangles: Tensor, texturePath: str,
         The path to the textures.
     segmentationPath : str
         The path to the segmentation.
-    triangles_uv : Tensor
-        the uv coordiante.
-    smpl_text_uv_mesh : Tensor
-        The indices of uv coordinates corresponding to the triangles.
-    show_mesh : bool
-        Whether to show the created mesh.
+    triangle_UVs : Tensor , optional 
+        The UV coodiantes of all triangles, i.e. triangleUVs = uvs[meshUVInd].
+        The default is None.
+    vertexcolor : Tensor , optional 
+        The color of vetices of the mesh to be created.
+        The default is None,
+    use_text : bool , optional 
+        Whether to use texture for vis. It has higher priority than the 
+        following use_vertex_color.
+        The default is False
+    use_vertex_color: bool , optional 
+        Whether to use vertex colors for visualization.
+        The default is False,
 
     Returns
     -------
-    o3dMesh : TYPE
-        DESCRIPTION.
+    o3dMesh : o3d.geometry.TriangleMesh
+        The created open3d triangle mesh object.
 
     '''
     # load textures 
     textureImage = o3d.geometry.Image( o3d.io.read_image(texturePath) )
     segmentImage = o3d.geometry.Image( o3d.io.read_image(segmentationPath) )
-    texture_UVs  = triangles_uv[smpl_text_uv_mesh.flatten(), :]
     texture_Idx  = o3d.utility.IntVector(torch.zeros(triangles.shape[0]).int())    # [numTriangle, 1]
-
+        
+    # create mesh 
     o3dMesh = o3d.geometry.TriangleMesh()
     o3dMesh.vertices = o3d.utility.Vector3dVector(vertices)
     o3dMesh.triangles= o3d.utility.Vector3iVector(triangles) 
-    o3dMesh.textures = [o3d.geometry.Image(textureImage), 
-                        o3d.geometry.Image(segmentImage)]
-    o3dMesh.triangle_uvs = o3d.utility.Vector2dVector(texture_UVs)
-    o3dMesh.triangle_material_ids = texture_Idx
-    
-    o3dMesh.compute_vertex_normals()
-    
-    if show_mesh:
-        o3d.visualization.draw_geometries([o3dMesh])
+    o3dMesh.compute_vertex_normals()     
+
+    # if use texure image for visualization, set textures and prepare the 
+    # material ids for vertices
+    if use_text:
+        assert triangle_UVs is not None, 'triangle_UVs has to be set.'
         
+        o3dMesh.triangle_uvs = o3d.utility.Vector2dVector(triangle_UVs)
+        o3dMesh.textures = [o3d.geometry.Image(textureImage), 
+                            o3d.geometry.Image(segmentImage)]
+        o3dMesh.triangle_material_ids = texture_Idx
+        
+    # else if use vertex color for visualization, set color for each vertex
+    elif use_vertex_color and vertexcolor is not None:
+        o3dMesh.vertex_colors = o3d.utility.Vector3dVector(vertexcolor/vertexcolor.max())
+            
     return o3dMesh
 
 
@@ -777,11 +790,83 @@ def generateSMPLmesh(path_toSMPL: str, pose: array, beta: array, trans: array,
     return (SMPLvert, joints)
 
 
-def verifyOneDisplacement(path_object: str):
+def verifyOneGroundTruth(path_object: str, path_SMPLmodel: str, 
+                          chooseUpsample: bool = True):
+    '''
+    This function visualize the objects in the given path for verification.
+
+    Parameters
+    ----------
+    path_object : str
+        Path to the folder containing the object.
+    path_SMPLmodel : str
+        Path to SMPL model.
+    chooseUpsample : bool, optional
+        Whether to verify the upsampled mesh. The default is True.
+
+    Returns
+    -------
+    None.
+
+    '''
+    # upsampled mesh
+    pathDisp = pjn(path_object, 'GroundTruth/normal_guided_displacements_oversample_%s.npy'%
+                       (['OFF', 'ON'][chooseUpsample]))
+    pathtext = pjn(path_object, 'GroundTruth/vertex_colors_oversample_%s.npy'%
+                       (['OFF', 'ON'][chooseUpsample]))
+    pathsegm = pjn(path_object, 'GroundTruth/segmentations_oversample_%s.npy'%
+                       (['OFF', 'ON'][chooseUpsample]))
+    pathobje = pjn('/'.join(path_SMPLmodel.split('/')[:-1]), 'text_uv_coor_smpl.obj')
     
-    return None
+    # textures, segmentations, SMPL parameters
+    pathTexture  = pjn(path_object, 'registered_tex.jpg')
+    pathSegment  = pjn(path_object, 'segmentation.png')
+    pathRegistr  = pjn(path_object, 'registration.pkl')
+    
+    # load SMPL parameters and model; transform vertices and joints.
+    registration = pickle.load(open(pathRegistr, 'rb'),  encoding='iso-8859-1')
+    SMPLvert_posed, joints = generateSMPLmesh(
+            path_SMPLmodel, registration['pose'], registration['betas'], 
+            registration['trans'], asTensor=True)
+    
+    # load SMPL obj file
+    smplVert, smplMesh, smpl_text_uv_coord, smpl_text_uv_mesh = read_Obj(pathobje)
+    smpl_text_uv_coord[:, 1] = 1 - smpl_text_uv_coord[:, 1]    # SMPL .obj need this conversion
+    
+    # upsample the orignal mesh if choose upsampled GT
+    if chooseUpsample:
+        o3dMesh = o3d.geometry.TriangleMesh()
+        o3dMesh.vertices = o3d.utility.Vector3dVector(SMPLvert_posed)
+        o3dMesh.triangles= o3d.utility.Vector3iVector(smplMesh) 
+        o3dMesh = o3dMesh.subdivide_midpoint(number_of_iterations=1)
+        
+        SMPLvert_posed = np.asarray(o3dMesh.vertices)
+        smplMesh = np.asarray(o3dMesh.triangles)
+    
+    # create meshes
+    if isfile(pathDisp):
+        displacement = np.load(pathDisp)
+        vertexcolors = np.load(pathtext)
+        segmentation = np.load(pathsegm)
+        
+        growVertices = SMPLvert_posed + displacement
+        clrBody = create_fullO3DMesh(growVertices, smplMesh, 
+                                     pathTexture, pathSegment, 
+                                     vertexcolor=vertexcolors/vertexcolors.max(), 
+                                     use_vertex_color=True)
+        
+        growVertices += np.array([0.6,0,0])
+        segBody = create_fullO3DMesh(growVertices, smplMesh, 
+                                     pathTexture, pathSegment, 
+                                     vertexcolor=segmentation/segmentation.max(), 
+                                     use_vertex_color=True)    
 
-
+        o3d.visualization.draw_geometries([clrBody, segBody])
+    else:
+        print('\n%s does not have %s mesh data.'
+              %(path_object.split('/')[-1], ['unsampled', 'upsampled'][chooseUpsample]))
+        
+        
 if __name__ == "__main__":
     
     path_object = '../../datasets/SampleDateset/125611487366942'
@@ -795,4 +880,5 @@ if __name__ == "__main__":
     mesh_differ = meshDifferentiator(cfgs)
     mesh_differ.computeDisplacement(path_object)
     
-    visDisplacement(path_object, cfgs['smplModel'], visMesh = True, save=False)
+    verifyOneGroundTruth(path_object, cfgs['smplModel'], chooseUpsample=True)
+    # visDisplacement(path_object, cfgs['smplModel'], visMesh = True, save=False)

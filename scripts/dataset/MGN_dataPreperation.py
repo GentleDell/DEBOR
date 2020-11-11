@@ -6,7 +6,6 @@ Created on Thu Oct 25 21:31:01 2020
 @author: zhantao
 """
 
-import os
 import ast
 import sys 
 sys.path.append( "../" )
@@ -20,7 +19,6 @@ from os.path import join as pjn
 import yaml
 import numpy as np
 import matplotlib.pyplot as plt
-from utils.vis_util import visDisplacement
 from utils.render_util import light, camera, getMaterialPath
 from utils.mesh_util import read_Obj, meshDifferentiator
 
@@ -259,7 +257,6 @@ if __name__ == "__main__":
         if cfgs['enable_displacement']:
             print("computing the GT displacements for: ", folder)
             mesh_differ.computeDisplacement(folder)
-            visDisplacement(folder, cfgs['smplModel'], visMesh = False)
         
         # rendering verification and generate boundingbox
         if cfgs['enable_rendering']:
