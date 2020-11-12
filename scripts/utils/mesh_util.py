@@ -48,7 +48,7 @@ class meshDifferentiator():
     self.device : str, optional
         The device where the computation will take place.
     self.path_SMPLmodel : str
-        Path to the SMPL models  file.
+        Path to the SMPL models file.
     self.num_separation : int
         In order to make memory footprint feasible, we separate the point
         cloud to the given batches(separatiions). 
@@ -80,7 +80,7 @@ class meshDifferentiator():
         # basic settings
         self.save = cfg['save_displacement']
         self.device = cfg['meshdiff_device']
-        self.path_SMPLmodel = cfg['smplModel'] 
+        self.path_SMPLmodel = cfg['smplModel_neu'] 
         self.num_separation = cfg['number_separation']
         self.enable_plots   = cfg['show_intermediateMeshes']
         
@@ -673,10 +673,10 @@ class meshDifferentiator():
                 np.save(f, segmentations)
             
 
-def create_fullO3DMesh(vertices: Tensor, triangles: Tensor, texturePath: str,
-                       segmentationPath: str, triangle_UVs: Tensor = None,
-                       vertexcolor: Tensor = None, use_text: bool=False, 
-                       use_vertex_color: bool = False,
+def create_fullO3DMesh(vertices: Tensor, triangles: Tensor, 
+                       texturePath: str = None, segmentationPath: str = None, 
+                       triangle_UVs: Tensor = None, vertexcolor: Tensor = None,
+                       use_text: bool=False, use_vertex_color: bool = False,
                        ) -> o3d.geometry.TriangleMesh:
     '''
     This function creates a open3d triangular mesh object with vertices, edges,
@@ -688,16 +688,18 @@ def create_fullO3DMesh(vertices: Tensor, triangles: Tensor, texturePath: str,
         The vertices of the mesh.
     triangles : Tensor
         The edges of the mesh.
-    texturePath : str
+    texturePath : str , optional 
         The path to the textures.
-    segmentationPath : str
+        The default is None.
+    segmentationPath : str , optional 
         The path to the segmentation.
+        The default is None.
     triangle_UVs : Tensor , optional 
         The UV coodiantes of all triangles, i.e. triangleUVs = uvs[meshUVInd].
         The default is None.
     vertexcolor : Tensor , optional 
         The color of vetices of the mesh to be created.
-        The default is None,
+        The default is None.
     use_text : bool , optional 
         Whether to use texture for vis. It has higher priority than the 
         following use_vertex_color.
@@ -712,11 +714,6 @@ def create_fullO3DMesh(vertices: Tensor, triangles: Tensor, texturePath: str,
         The created open3d triangle mesh object.
 
     '''
-    # load textures 
-    textureImage = o3d.geometry.Image( o3d.io.read_image(texturePath) )
-    segmentImage = o3d.geometry.Image( o3d.io.read_image(segmentationPath) )
-    texture_Idx  = o3d.utility.IntVector(torch.zeros(triangles.shape[0]).int())    # [numTriangle, 1]
-        
     # create mesh 
     o3dMesh = o3d.geometry.TriangleMesh()
     o3dMesh.vertices = o3d.utility.Vector3dVector(vertices)
@@ -726,7 +723,14 @@ def create_fullO3DMesh(vertices: Tensor, triangles: Tensor, texturePath: str,
     # if use texure image for visualization, set textures and prepare the 
     # material ids for vertices
     if use_text:
-        assert triangle_UVs is not None, 'triangle_UVs has to be set.'
+        assert triangle_UVs is not None \
+            and texturePath is not None \
+            and segmentationPath is not None, \
+            'triangle_UVs, texture image and segmentation have to be set.'
+        
+        textureImage = o3d.geometry.Image( o3d.io.read_image(texturePath) )
+        segmentImage = o3d.geometry.Image( o3d.io.read_image(segmentationPath) )
+        texture_Idx  = o3d.utility.IntVector(torch.zeros(triangles.shape[0]).int())    # [numTriangle, 1]
         
         o3dMesh.triangle_uvs = o3d.utility.Vector2dVector(triangle_UVs)
         o3dMesh.textures = [o3d.geometry.Image(textureImage), 
@@ -818,9 +822,7 @@ def verifyOneGroundTruth(path_object: str, path_SMPLmodel: str,
                        (['OFF', 'ON'][chooseUpsample]))
     pathobje = pjn('/'.join(path_SMPLmodel.split('/')[:-1]), 'text_uv_coor_smpl.obj')
     
-    # textures, segmentations, SMPL parameters
-    pathTexture  = pjn(path_object, 'registered_tex.jpg')
-    pathSegment  = pjn(path_object, 'segmentation.png')
+    # SMPL parameters
     pathRegistr  = pjn(path_object, 'registration.pkl')
     
     # load SMPL parameters and model; transform vertices and joints.
@@ -851,13 +853,11 @@ def verifyOneGroundTruth(path_object: str, path_SMPLmodel: str,
         
         growVertices = SMPLvert_posed + displacement
         clrBody = create_fullO3DMesh(growVertices, smplMesh, 
-                                     pathTexture, pathSegment, 
                                      vertexcolor=vertexcolors/vertexcolors.max(), 
                                      use_vertex_color=True)
         
         growVertices += np.array([0.6,0,0])
         segBody = create_fullO3DMesh(growVertices, smplMesh, 
-                                     pathTexture, pathSegment, 
                                      vertexcolor=segmentation/segmentation.max(), 
                                      use_vertex_color=True)    
 
@@ -869,7 +869,7 @@ def verifyOneGroundTruth(path_object: str, path_SMPLmodel: str,
         
 if __name__ == "__main__":
     
-    path_object = '../../datasets/SampleDateset/125611487366942'
+    path_object = '../../datasets/SampleDateset/125611494278283'
     
     with open('../dataset/MGN_render_cfg.yaml') as f:
         cfgs = yaml.load(f, Loader=yaml.FullLoader)
@@ -877,8 +877,7 @@ if __name__ == "__main__":
         for key, val in cfgs.items():
             print('%-25s:'%(key), val)   
     
-    mesh_differ = meshDifferentiator(cfgs)
-    mesh_differ.computeDisplacement(path_object)
+    # mesh_differ = meshDifferentiator(cfgs)
+    # mesh_differ.computeDisplacement(path_object)
     
-    verifyOneGroundTruth(path_object, cfgs['smplModel'], chooseUpsample=True)
-    # visDisplacement(path_object, cfgs['smplModel'], visMesh = True, save=False)
+    verifyOneGroundTruth(path_object, cfgs['smplModel_neu'], chooseUpsample=True)

@@ -133,7 +133,7 @@ def prepareData(cfgs: dict):
 
     '''
     # get material paths
-    MGN_data   = getMaterialPath(cfgs['dataroot'])
+    MGN_data   = getMaterialPath(cfgs['datarootMGN'])
     
     # create camera list
     cameraList = easyCameras(numCircCameras = cfgs['numCircCameras'], 
@@ -217,20 +217,20 @@ def boundingbox(imagefolder: str, cameraIdx: int = 0, marginSize: int = 25):
 
 if __name__ == "__main__":
     '''
-    Renderning images for meshes of the MGN dataset and compute the ground 
-    truth displacements for vertices.
+    Renderning images for meshes of the MGN dataset and computing the ground 
+    truth displacements, colors, and segmentations for vertices.
     '''
     # parse arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('--render_cfg', action='store', type=str, 
+    parser.add_argument('--dataset_preparation_cfg', action='store', type=str, 
                         help='Path to the configuration for rendering.', 
-                        default = './MGN_render_cfg.yaml')
+                        default = './dataset_preparation_cfg.yaml')
     args = parser.parse_args()
 
-    # read render configurations
-    with open(args.render_cfg) as f:
+    # read preparation configurations
+    with open(args.dataset_preparation_cfg) as f:
         cfgs = yaml.load(f, Loader=yaml.FullLoader)
-        print('\nRendering configurations:\n')
+        print('\nDataset preparation configurations:\n')
         for key, val in cfgs.items():
             print('%-25s:'%(key), val)    
     
@@ -251,7 +251,7 @@ if __name__ == "__main__":
     # compute the ground truth displacements; verify the quality of the 
     # rendered image and get the bounding box
     mesh_differ = meshDifferentiator(cfgs)
-    for folder in sorted(glob( pjn(cfgs['dataroot'], '*' ) )):
+    for folder in sorted(glob( pjn(cfgs['datarootMGN'], '*' ) )):
         
         # GT displacements
         if cfgs['enable_displacement']:
