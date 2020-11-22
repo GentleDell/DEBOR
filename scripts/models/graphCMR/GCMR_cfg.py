@@ -57,7 +57,8 @@ class TrainOptions(object):
         shuffle_train = train.add_mutually_exclusive_group()
         shuffle_train.add_argument('--shuffle_train', dest='shuffle_train', action='store_true', help='Shuffle training data')
         shuffle_train.add_argument('--no_shuffle_train', dest='shuffle_train', action='store_false', help='Don\'t shuffle training data')
-
+        shuffle_train.set_defaults(shuffle_train=True)
+        
         optim = self.parser.add_argument_group('Optimization')
         optim.add_argument('--adam_beta1', type=float, default=0.9, help='Value for Adam Beta 1')
         optim.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
