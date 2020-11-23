@@ -15,7 +15,7 @@ from tensorboardX import SummaryWriter
 from dataset.mgn_dataset import MGNDataset
 from dataset.data_loader import CheckpointDataLoader
 from utils import Mesh, CheckpointSaver
-from models import GraphCNN
+from models import GraphCNN, res50_plus_Dec
 from GCMR_cfg import TrainOptions
 
 
@@ -32,20 +32,26 @@ class trainer(object):
         self.train_ds = MGNDataset(self.options)
 
         # create Mesh object
-        self.mesh = Mesh(options, num_downsampling = 0)
+        self.mesh = Mesh(options, options.num_downsampling)
         self.faces = self.mesh.faces.to(self.device)
 
         # create GraphCNN
-        self.graph_cnn = GraphCNN(
-            self.mesh.adjmat,
-            self.mesh.ref_vertices.t(),
-            num_channels=self.options.num_channels,
-            num_layers=self.options.num_layers
-            ).to(self.device)
-        
+        if self.options.model == 'graphcnn':
+            self.model = GraphCNN(
+                self.mesh.adjmat,
+                self.mesh.ref_vertices.t(),
+                num_channels=self.options.num_channels,
+                num_layers=self.options.num_layers
+                ).to(self.device)
+        elif self.options.model == 'sizernn':
+            self.model = res50_plus_Dec(
+                self.options.latent_size,
+                self.mesh.ref_vertices.shape[0] * 3,    # numVert x 3 displacements
+                ).to(self.device)
+            
         # Setup a joint optimizer for the 2 models
         self.optimizer = torch.optim.Adam(
-            params=list(self.graph_cnn.parameters()),
+            params=list(self.model.parameters()),
             lr=self.options.lr,
             betas=(self.options.adam_beta1, 0.999),
             weight_decay=self.options.wd)
@@ -54,7 +60,7 @@ class trainer(object):
         self.criterion_shape = nn.L1Loss().to(self.device)
         
         # Pack models and optimizers in a dict - necessary for checkpointing
-        self.models_dict = {'graph_cnn': self.graph_cnn}
+        self.models_dict = {self.options.model: self.model}
         self.optimizers_dict = {'optimizer': self.optimizer}
         
         # check point manager
@@ -76,21 +82,22 @@ class trainer(object):
         
     def train_step(self, input_batch):
         """Training step."""
-        self.graph_cnn.train()
+        self.model.train()
 
         # Grab data from the batch
         images = input_batch['img']
 
         # Render vertices using SMPL parameters
-        gt_vertices_disp = input_batch['GTdisplacements']
+        gt_vertices_disp = input_batch['meshGT']['displacement'].to(self.device)
 
-        # Feed image in the GraphCNN
-        # Returns subsampled mesh and camera parameters
-        pred_vertices_disp = self.graph_cnn(images)
+        # Feed image and pose in the GraphCNN
+        # Returns full mesh
+        pose = (None, input_batch['smplGT']['pose'].to(self.device))[self.options.append_pose]
+        pred_vertices_disp = self.model(images, pose)
     
         # Compute losses
-        loss_shape = self.shape_loss(pred_vertices_disp, gt_vertices_disp.permute(0,2,1))
-  
+        loss_shape = self.shape_loss(pred_vertices_disp, gt_vertices_disp)
+
         # Add losses to compute the total loss
         loss = loss_shape
 
@@ -170,10 +177,17 @@ class trainer(object):
         pass
 
 if __name__ == '__main__':
-    
+            
     # read preparation configurations
     cfgs = TrainOptions()
     cfgs.parse_args()
+
+    for arg in sorted(vars(cfgs.args)):
+        print('%-25s:'%(arg), getattr(cfgs.args, arg)) 
+
+    # require confirmation
+    msg = 'Do you confirm that the settings are correct?'
+    assert input("%s (Y/N) " % msg).lower() == 'y', 'Settings are not comfirmed.'
     
     mgn_trainer = trainer(cfgs.args)
     mgn_trainer.train()

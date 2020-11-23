@@ -869,9 +869,9 @@ def verifyOneGroundTruth(path_object: str, path_SMPLmodel: str,
         
 if __name__ == "__main__":
     
-    path_object = '../../datasets/SampleDateset/125611494278283'
+    path_object = '../../datasets/Multi-Garment_dataset/125611495138902'
     
-    with open('../dataset/MGN_render_cfg.yaml') as f:
+    with open('../dataset/dataset_preparation_cfg.yaml') as f:
         cfgs = yaml.load(f, Loader=yaml.FullLoader)
         print('\nRendering configurations:\n')
         for key, val in cfgs.items():
@@ -880,4 +880,4 @@ if __name__ == "__main__":
     # mesh_differ = meshDifferentiator(cfgs)
     # mesh_differ.computeDisplacement(path_object)
     
-    verifyOneGroundTruth(path_object, cfgs['smplModel_neu'], chooseUpsample=True)
+    verifyOneGroundTruth(path_object, cfgs['smplModel_neu'], chooseUpsample=False)

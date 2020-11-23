@@ -8,6 +8,7 @@ Created on Thu Nov 19 22:19:17 2020
 from os.path import join as pjn
 from glob import glob
 from ast import literal_eval
+import pickle as pickle
 
 import torch
 from torch.utils.data import Dataset
@@ -44,7 +45,7 @@ class BaseDataset(Dataset):
         # load data
         self.imgname, self.center, self.scale = [], [], []
         self.cameraInt, self.cameraExt, self.lights= [], [], []      
-        self.GTdispace, self.GTtexture, self.GTdispaceOv, self.GTtextureOv = [], [], [], []
+        self.meshGT, self.smplGTParas = [], []
         for obj in self.obj_dir:
             
             # read images and rendering settings
@@ -84,10 +85,16 @@ class BaseDataset(Dataset):
             displaceOv = np.load( pjn(path_to_GT, 'normal_guided_displacements_oversample_ON.npy') )
             texture    = np.load( pjn(path_to_GT, 'vertex_colors_oversample_OFF.npy') )
             textureOv  = np.load( pjn(path_to_GT, 'vertex_colors_oversample_ON.npy') )
-            self.GTdispace.append( displace )
-            self.GTtexture.append(texture)
-            self.GTdispaceOv.append( displaceOv )
-            self.GTtextureOv.append(textureOv)
+            self.meshGT.append({'displacement': displace,
+                                'displacementOv': displaceOv,
+                                'texture': texture,
+                                'textureOv': textureOv})
+            
+            # read smpl parameters
+            registration = pickle.load(open( pjn(obj, 'registration.pkl'), 'rb'),  encoding='iso-8859-1')
+            self.smplGTParas.append({'betas': registration['betas'],
+                                     'pose':  registration['pose'], 
+                                     'trans': registration['trans']})
             
         # TODO: change the mean and std to our case
         IMG_NORM_MEAN = [0.485, 0.456, 0.406]
@@ -171,10 +178,8 @@ class BaseDataset(Dataset):
         item['center'] = np.array(center).astype(np.float32)
         item['orig_shape'] = orig_shape
         
-        item['GTdisplacements'] = self.GTdispace[ index//self.options.img_per_object ]
-        item['GTtextures'] = self.GTtexture[ index//self.options.img_per_object ]
-        item['GTdisplacements_oversample'] = self.GTdispaceOv[ index//self.options.img_per_object ]
-        item['GTtextures_oversample'] = self.GTtextureOv[ index//self.options.img_per_object ]
+        item['meshGT'] = self.meshGT[ index//self.options.img_per_object ]
+        item['smplGT'] = self.smplGTParas[ index//self.options.img_per_object ]
         
         # Pass path to segmentation mask, if available
         # Cannot load the mask because each mask has different size, so they cannot be stacked in one tensor
