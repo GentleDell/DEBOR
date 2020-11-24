@@ -38,7 +38,7 @@ class TrainOptions(object):
         io.add_argument('--pretrained_checkpoint', default=None, help='Load a pretrained Graph CNN when starting training') 
 
         arch = self.parser.add_argument_group('Architecture')
-        arch.add_argument('--model', default='sizernn', choices=['graphcnn', 'sizernn'], help='The model to be trained') 
+        arch.add_argument('--model', default='tex2shape', choices=['graphcnn', 'sizernn', 'tex2shape'], help='The model to be trained') 
         arch.add_argument('--num_channels', type=int, default=256, help='Number of channels in Graph Residual layers') 
         arch.add_argument('--num_layers', type=int, default=5, help='Number of residuals blocks in the Graph CNN') 
         arch.add_argument('--latent_size', type=int, default=200, help='size of latent vector in sizernet') 

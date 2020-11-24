@@ -15,7 +15,7 @@ from tensorboardX import SummaryWriter
 from dataset.mgn_dataset import MGNDataset
 from dataset.data_loader import CheckpointDataLoader
 from utils import Mesh, CheckpointSaver
-from models import GraphCNN, res50_plus_Dec
+from models import GraphCNN, res50_plus_Dec, tex2shape
 from GCMR_cfg import TrainOptions
 
 
@@ -35,7 +35,7 @@ class trainer(object):
         self.mesh = Mesh(options, options.num_downsampling)
         self.faces = self.mesh.faces.to(self.device)
 
-        # create GraphCNN
+        # create model
         if self.options.model == 'graphcnn':
             self.model = GraphCNN(
                 self.mesh.adjmat,
@@ -48,6 +48,11 @@ class trainer(object):
                 self.options.latent_size,
                 self.mesh.ref_vertices.shape[0] * 3,    # numVert x 3 displacements
                 ).to(self.device)
+        elif self.options.model == 'tex2shape':
+            self.model = tex2shape(
+                input_shape = (self.options.res, self.options.res, 3), 
+                output_dims = 3                         # only consider displacements currently
+                )
             
         # Setup a joint optimizer for the 2 models
         self.optimizer = torch.optim.Adam(
