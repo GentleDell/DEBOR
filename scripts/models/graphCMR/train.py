@@ -104,10 +104,12 @@ class trainer(object):
             gt_uvMaps  = input_batch['UVmapGT'].to(self.device)
             pred_uvMap = self.model(images, pose)
             loss_shape = self.uvMap_loss(pred_uvMap, gt_uvMaps)
+            out_args = [pred_uvMap, loss_shape]
         else:
             gt_vertices_disp = input_batch['meshGT']['displacement'].to(self.device)
             pred_vertices_disp = self.model(images, pose)
             loss_shape = self.shape_loss(pred_vertices_disp, gt_vertices_disp)
+            out_args = [pred_vertices_disp, loss_shape]
 
         # Add losses to compute the total loss
         loss = loss_shape
@@ -118,13 +120,11 @@ class trainer(object):
         self.optimizer.step()
 
         # Pack output arguments to be used for visualization in a list
-        out_args = [pred_vertices_disp, loss_shape, loss]
-        out_args = [arg.detach() for arg in out_args]
+        out_args = [arg.detach() for arg in out_args] + [loss]
         return out_args
 
     def train_summaries(self, input_batch, pred_vertices_disp, loss_shape,  loss):
         """Tensorboard logging."""
-         
         # Save results in Tensorboard
         self.summary_writer.add_scalar('loss_shape', loss_shape, self.step_count)
         self.summary_writer.add_scalar('loss', loss, self.step_count)

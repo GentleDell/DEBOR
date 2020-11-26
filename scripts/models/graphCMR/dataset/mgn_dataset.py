@@ -176,7 +176,7 @@ class BaseDataset(Dataset):
         img = torch.from_numpy(img).float()
         # Store image before normalization to use it in visualization
         item['img_orig'] = img.clone()
-        item['img'] = self.normalize_img(img)
+        item['img'] = self.normalize_img(img)    # normalize the input image 
         item['imgname'] = imgname
 
         item['scale'] = float(sc * scale)
@@ -185,7 +185,7 @@ class BaseDataset(Dataset):
         
         item['meshGT'] = self.meshGT[ index//self.options.img_per_object ]
         item['smplGT'] = self.smplGTParas[ index//self.options.img_per_object ]
-        item['UVmapGT']= self.UVmapGT[ index//self.options.img_per_object ]
+        item['UVmapGT']= self.UVmapGT[ index//self.options.img_per_object ]    # no need to touch the GT
         
         # Pass path to segmentation mask, if available
         # Cannot load the mask because each mask has different size, so they cannot be stacked in one tensor
