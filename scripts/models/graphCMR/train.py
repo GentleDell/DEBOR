@@ -12,11 +12,10 @@ from tqdm import tqdm
 tqdm.monitor_interval = 0
 from tensorboardX import SummaryWriter
 
-from dataset.mgn_dataset import MGNDataset
-from dataset.data_loader import CheckpointDataLoader
+from dataset import MGNDataset, CheckpointDataLoader
 from utils import Mesh, CheckpointSaver
-from models import GraphCNN, res50_plus_Dec, tex2shape
-from GCMR_cfg import TrainOptions
+from models import GraphCNN, res50_plus_Dec, Tex2Shape
+from cfg import TrainOptions
 
 
 class trainer(object):
@@ -49,10 +48,10 @@ class trainer(object):
                 self.mesh.ref_vertices.shape[0] * 3,    # numVert x 3 displacements
                 ).to(self.device)
         elif self.options.model == 'tex2shape':
-            self.model = tex2shape(
-                input_shape = (self.options.res, self.options.res, 3), 
+            self.model = Tex2Shape(
+                input_shape = (self.options.img_res, self.options.img_res, 3), 
                 output_dims = 3                         # only consider displacements currently
-                )
+                ).to(self.device)
             
         # Setup a joint optimizer for the 2 models
         self.optimizer = torch.optim.Adam(
@@ -84,6 +83,10 @@ class trainer(object):
     def shape_loss(self, pred_vertices, gt_vertices):
         """Compute per-vertex loss on the shape for the examples that SMPL annotations are available."""
         return self.criterion_shape(pred_vertices, gt_vertices)
+    
+    def uvMap_loss(self, pred_UVMap, gt_UVMap):
+        """Compute per-pixel loss on the uv texture map."""
+        return self.criterion_shape(pred_UVMap, gt_UVMap)
         
     def train_step(self, input_batch):
         """Training step."""
@@ -92,16 +95,19 @@ class trainer(object):
         # Grab data from the batch
         images = input_batch['img']
 
-        # Render vertices using SMPL parameters
-        gt_vertices_disp = input_batch['meshGT']['displacement'].to(self.device)
-
         # Feed image and pose in the GraphCNN
         # Returns full mesh
         pose = (None, input_batch['smplGT']['pose'].to(self.device))[self.options.append_pose]
-        pred_vertices_disp = self.model(images, pose)
-    
+
         # Compute losses
-        loss_shape = self.shape_loss(pred_vertices_disp, gt_vertices_disp)
+        if self.options.model == 'tex2shape':
+            gt_uvMaps  = input_batch['UVmapGT'].to(self.device)
+            pred_uvMap = self.model(images, pose)
+            loss_shape = self.uvMap_loss(pred_uvMap, gt_uvMaps)
+        else:
+            gt_vertices_disp = input_batch['meshGT']['displacement'].to(self.device)
+            pred_vertices_disp = self.model(images, pose)
+            loss_shape = self.shape_loss(pred_vertices_disp, gt_vertices_disp)
 
         # Add losses to compute the total loss
         loss = loss_shape

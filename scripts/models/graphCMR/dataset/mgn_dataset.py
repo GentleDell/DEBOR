@@ -45,7 +45,7 @@ class BaseDataset(Dataset):
         # load data
         self.imgname, self.center, self.scale = [], [], []
         self.cameraInt, self.cameraExt, self.lights= [], [], []      
-        self.meshGT, self.smplGTParas = [], []
+        self.meshGT, self.smplGTParas, self.UVmapGT = [], [], []
         for obj in self.obj_dir:
             
             # read images and rendering settings
@@ -79,7 +79,7 @@ class BaseDataset(Dataset):
                     lightSettings = literal_eval(f.readline())
                     self.lights.append(lightSettings)           
                     
-            # read ground truth displacements and texture
+            # read ground truth displacements and texture vector
             path_to_GT = pjn(obj, 'GroundTruth')
             displace   = np.load( pjn(path_to_GT, 'normal_guided_displacements_oversample_OFF.npy') )
             displaceOv = np.load( pjn(path_to_GT, 'normal_guided_displacements_oversample_ON.npy') )
@@ -95,6 +95,11 @@ class BaseDataset(Dataset):
             self.smplGTParas.append({'betas': registration['betas'],
                                      'pose':  registration['pose'], 
                                      'trans': registration['trans']})
+            
+            # read and resize UV texture map
+            UV_textureMap = cv2.imread( pjn(obj, 'registered_tex.jpg') )
+            UV_textureMap = cv2.resize(UV_textureMap, (self.options.img_res, self.options.img_res), cv2.INTER_CUBIC)
+            self.UVmapGT.append(UV_textureMap)
             
         # TODO: change the mean and std to our case
         IMG_NORM_MEAN = [0.485, 0.456, 0.406]
@@ -180,6 +185,7 @@ class BaseDataset(Dataset):
         
         item['meshGT'] = self.meshGT[ index//self.options.img_per_object ]
         item['smplGT'] = self.smplGTParas[ index//self.options.img_per_object ]
+        item['UVmapGT']= self.UVmapGT[ index//self.options.img_per_object ]
         
         # Pass path to segmentation mask, if available
         # Cannot load the mask because each mask has different size, so they cannot be stacked in one tensor

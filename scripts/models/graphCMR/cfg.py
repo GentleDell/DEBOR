@@ -25,7 +25,7 @@ class TrainOptions(object):
         gen = self.parser.add_argument_group('General')
         gen.add_argument('--resume', dest='resume', default=False, action='store_true', help='Resume from checkpoint (Use latest checkpoint by default')
         gen.add_argument('--num_workers', type=int, default=8, help='Number of processes used for data loading')
-        gen.add_argument('--name', default='MGN_GCMR', help='Name of the experiment')
+        gen.add_argument('--name', default='MGN_T2S', help='Name of the experiment')
         pin = gen.add_mutually_exclusive_group()
         pin.add_argument('--pin_memory', dest='pin_memory', action='store_true', help='pin memory to speedup training')
         pin.add_argument('--no_pin_memory', dest='pin_memory', action='store_false', help='do not pin memory')
