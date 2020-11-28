@@ -25,7 +25,7 @@ class TrainOptions(object):
         gen = self.parser.add_argument_group('General')
         gen.add_argument('--resume', dest='resume', default=False, action='store_true', help='Resume from checkpoint (Use latest checkpoint by default')
         gen.add_argument('--num_workers', type=int, default=8, help='Number of processes used for data loading')
-        gen.add_argument('--name', default='MGN_T2S', help='Name of the experiment')
+        gen.add_argument('--name', default='verfStructure', help='Name of the experiment')
         pin = gen.add_mutually_exclusive_group()
         pin.add_argument('--pin_memory', dest='pin_memory', action='store_true', help='pin memory to speedup training')
         pin.add_argument('--no_pin_memory', dest='pin_memory', action='store_false', help='do not pin memory')
@@ -33,7 +33,7 @@ class TrainOptions(object):
        
         io = self.parser.add_argument_group('io')
         io.add_argument('--log_dir', default='logs', help='Directory to store logs')
-        io.add_argument('--mgn_dir', default='../../../datasets/Multi-Garment_dataset', help='Directory to store logs')
+        io.add_argument('--mgn_dir', default='../datasets/Multi-Garment_dataset', help='Directory to store logs')
         io.add_argument('--checkpoint', default=None, help='Path to save checkpoint')
         io.add_argument('--pretrained_checkpoint', default=None, help='Load a pretrained Graph CNN when starting training') 
 
@@ -51,8 +51,8 @@ class TrainOptions(object):
         train = self.parser.add_argument_group('Training Options')
         train.add_argument('--num_epochs', type=int, default=100, help='Total number of training epochs')
         train.add_argument('--batch_size', type=int, default=2, help='Batch size')
-        train.add_argument('--summary_steps', type=int, default=50, help='Summary saving frequency')
-        train.add_argument('--checkpoint_steps', type=int, default=2000, help='Checkpoint saving frequency')
+        train.add_argument('--summary_steps', type=int, default=2, help='Summary saving frequency')
+        train.add_argument('--checkpoint_steps', type=int, default=4, help='Checkpoint saving frequency')
         train.add_argument('--test_steps', type=int, default=2000, help='Testing frequency')
         train.add_argument('--rot_factor', type=float, default=30, help='Random rotation in the range [-rot_factor, rot_factor]') 
         train.add_argument('--noise_factor', type=float, default=0.4, help='Random rotation in the range [-rot_factor, rot_factor]') 

@@ -183,9 +183,38 @@ class trainer(object):
             if (epoch+1) % 10 == 0:
                 # self.saver.save_checkpoint(self.models_dict, self.optimizers_dict, epoch+1, 0, self.step_count) 
                 self.saver.save_checkpoint(self.models_dict, self.optimizers_dict, epoch+1, 0, self.options.batch_size, None, self.step_count) 
+    
         
     def test(self):
         pass
+    
+    
+    def inference(self, path_to_object, option):
+        
+        import numpy as np
+        import cv2
+        from glob import glob 
+        from ast import literal_eval
+        from os.path import join as pjn
+        
+        self.model.eval()
+        
+        for idx, imagePath in enumerate(sorted( glob(pjn(path_to_object, 'rendering/*smpl_registered.png')) )):
+            
+            pose = None
+            
+            cameraIdx = int(imagePath.split('/')[-1].split('_')[0][6:])
+            with open( pjn( path_to_object,'rendering/camera%d_boundingbox.txt'%(cameraIdx)) ) as f:
+                boundbox = literal_eval(f.readline())
+                                   
+            img  = cv2.imread(imagePath)
+            img  = img[boundbox[0]:boundbox[2], boundbox[1]:boundbox[3]]
+            img  = cv2.resize(img, (option.img_res, option.img_res), cv2.INTER_CUBIC)
+            img  = self.train_ds.mgn_dataset.normalize_img( torch.Tensor(img).permute(2,0,1) )/255
+                
+            pred_vertices = self.model(img[None,:,:,:].to(self.device), pose)
+            np.save(pjn(path_to_object, 'GroundTruth/prediction%d.npy'%(idx)), pred_vertices.detach().to('cpu'))
+        
 
 if __name__ == '__main__':
             
@@ -202,4 +231,7 @@ if __name__ == '__main__':
     
     mgn_trainer = trainer(cfgs.args)
     mgn_trainer.train()
+    
+    # path_to_object = '/home/zhantao/Documents/masterProject/DEBOR/datasets/Multi-Garment_dataset/125611487366942'
+    # mgn_trainer.inference(path_to_object, cfgs.args)
     
