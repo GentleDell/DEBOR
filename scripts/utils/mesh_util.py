@@ -5,12 +5,12 @@ Created on Tue Oct 13 22:11:39 2020
 
 @author: zhantao
 """
-
-import sys
-sys.path.append('../')
-sys.path.append('../third_party/smpl_webuser')
 from os import makedirs
-from os.path import join as pjn, isfile, exists
+from os.path import join as pjn, isfile, exists, abspath
+import sys
+if abspath('./') not in sys.path:
+    sys.path.append(abspath('./'))
+    sys.path.append(abspath('./third_party/smpl_webuser'))
 import pickle
 import errno
 from math import floor

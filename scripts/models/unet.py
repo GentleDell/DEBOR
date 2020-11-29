@@ -3,12 +3,7 @@
 """
 Created on Tue Nov 24 11:21:39 2020
 
-reimplement the tex2shape network: 
-    "Tex2Shape: Detailed Full Human Body Geometry From a Single Image"
-
-Refer to https://github.com/thmoa/tex2shape for details of the orginal work
-
-@Editor: zhantao
+@author: zhantao
 """
 
 import torch
@@ -16,7 +11,9 @@ import torch.nn as nn
 
 
 class downsampleLayer(nn.Module):
-    
+    '''
+    A downsample layer of UNet. LeakyReLU is used as the activation func. 
+    '''
     def __init__(self, infeature, outfeature, kernelSize, 
                  strides = 2, paddings = 1, bn = False):
         super(downsampleLayer, self).__init__()
@@ -38,7 +35,11 @@ class downsampleLayer(nn.Module):
         return y
 
 class upsampleLayer(nn.Module):
-    
+    '''
+    A upsample layer of UNet. ReLU is the activation func. The skip connection 
+    can be cutted if not given. Because RGB-UV is not a completion task but a
+    image transition task.
+    '''
     def __init__(self, infeature, outfeature, kernelSize, 
                  strides = 1, paddings = 1, bn = False, dropout_rate = 0):
         super(upsampleLayer, self).__init__()
@@ -56,7 +57,7 @@ class upsampleLayer(nn.Module):
         if bn:
             self.bn = nn.BatchNorm2d(outfeature, momentum = 0.8)
             
-    def forward(self, x, skip_input):
+    def forward(self, x, skip_input = None):
         y = self.conv(self.upsp(x))
         
         if self.drop is not None:
@@ -65,12 +66,15 @@ class upsampleLayer(nn.Module):
         if self.bn is not None:
             y = self.bn(y)
         
-        y = torch.cat( (y, skip_input), 1)
+        if skip_input is not None:
+            y = torch.cat( (y, skip_input), 1)
         
         return y
     
 class unet_core(nn.Module):
-    
+    '''
+    Pytorch reimplementation of the UNet used in tex2shape with some changes.
+    '''
     def __init__(self, dropRate: float = 0, batchNormalization: bool = True):
         super(unet_core, self).__init__()
 
@@ -89,8 +93,8 @@ class unet_core(nn.Module):
         self.u1 = upsampleLayer(base_depth*8 , base_depth*8, kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
         self.u2 = upsampleLayer(base_depth*16, base_depth*8, kernelSize-1, paddings=0, dropout_rate=dropRate, bn=batchNormalization) 
         self.u3 = upsampleLayer(base_depth*16, base_depth*4, kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
-        self.u4 = upsampleLayer(base_depth*8, base_depth*2, kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
-        self.u5 = upsampleLayer(base_depth*4, base_depth  , kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
+        self.u4 = upsampleLayer(base_depth*4, base_depth*2, kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
+        self.u5 = upsampleLayer(base_depth*2, base_depth  , kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
         self.u6 = nn.Upsample(scale_factor=2, mode='nearest')
         
     def forward(self, d0):
@@ -101,35 +105,26 @@ class unet_core(nn.Module):
         d4 = self.d4(d3)    # 14x14x512
         d5 = self.d5(d4)    # 8x8x512
         d6 = self.d6(d5)    # 4x4x512
-         
+        
+        # only keep the 2 low-level connections
         u1 = self.u1(d6, d5)    # 8x8x1024
         u2 = self.u2(u1, d4)    # 14x14x1024
-        u3 = self.u3(u2, d3)    # 28x28x512
-        u4 = self.u4(u3, d2)    # 56x56x256
-        u5 = self.u5(u4, d1)    # 112x112x128
+        u3 = self.u3(u2)        # 28x28x256
+        u4 = self.u4(u3)        # 56x56x128
+        u5 = self.u5(u4)        # 112x112x64
         
-        u6 = self.u6(u5)    # 224x224x128
+        u6 = self.u6(u5)        # 224x224x64
         
         return u6
         
     
-class Tex2ShapeModel(nn.Module):
+class UNet(nn.Module):
     '''
-    Pytorch reimplementation with our modifications of the original tex2shape
-    network.
+    Pytorch reimplementation with our modifications of the original UNet used 
+    in tex2shape.
     
-    TODO:
-        1. try to use the UNet for RGB -> UV texture directly. 
-            I guess it would not work, as UNet is better for image completion.1
-            
-        2. use betas and poses to reporject the SMPL model to image to get 
-           imcomplete UV texture and then use UNet to complete the texture. 
-            I guess this will work. but it would highly rely on the accuracy 
-            of pose and shape estimation.
-            
-        3. or we will have to use DensoPose to get the IUV image.
-        
-        read 360d and texturepose see how they do this task and if released
+    To use the UNet for RGB -> UV texture transition, we cut the high-level 
+    skip connections.
     '''
     def __init__(self, input_shape = (512, 512, 3), output_dims = 6,
                  kernel_size = 3, dropout_rate = 0, bn = True):
@@ -137,7 +132,7 @@ class Tex2ShapeModel(nn.Module):
         output shape could be larger, instead of 224x224 again.
         '''
         
-        super(Tex2ShapeModel, self).__init__()
+        super(UNet, self).__init__()
         
         self.input_shape = input_shape
         self.output_dims = input_shape[2] if output_dims is None else output_dims
@@ -146,7 +141,7 @@ class Tex2ShapeModel(nn.Module):
         self.bn = bn
         
         self.unet_core = unet_core(dropRate=dropout_rate, batchNormalization=bn)
-        self.outLayer = nn.Conv2d( 64*2, output_dims, kernel_size, padding=1)
+        self.outLayer = nn.Conv2d( 64, output_dims, kernel_size, padding=1)
         
     def forward(self, x, pose = None):
         
@@ -164,5 +159,5 @@ class Tex2ShapeModel(nn.Module):
         return x.permute(0,2,3,1)
 
 if __name__ == "__main__":
-    model = Tex2ShapeModel()
+    model = UNet()
     model.summary()

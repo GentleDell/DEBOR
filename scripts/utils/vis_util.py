@@ -6,10 +6,11 @@ Created on Wed Nov  4 17:16:11 2020
 @author: zhantao
 """
 import pickle as pickle
-from os.path import join as pjn, isfile, isdir
+from os.path import join as pjn, isfile, isdir, abspath
 import sys
-sys.path.append('../')
-sys.path.append('../third_party/smpl_webuser')
+if abspath('./') not in sys.path:
+    sys.path.append(abspath('./'))
+    sys.path.append(abspath('./third_party/smpl_webuser'))
 
 import open3d as o3d
 import chumpy as ch

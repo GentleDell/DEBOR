@@ -42,7 +42,7 @@ class BaseDataset(Dataset):
         else:
             self.obj_dir = self.obj_dir[int(numOBJ*0.9):]
         
-        # load data
+        # load datatest
         self.imgname, self.center, self.scale = [], [], []
         self.cameraInt, self.cameraExt, self.lights= [], [], []      
         self.meshGT, self.smplGTParas, self.UVmapGT = [], [], []
@@ -206,9 +206,9 @@ class BaseDataset(Dataset):
 class MGNDataset(torch.utils.data.Dataset):
     """Mixed dataset with data from all available datasets."""
     
-    def __init__(self, options):
+    def __init__(self, options, split='train'):
         super(MGNDataset, self).__init__()
-        self.mgn_dataset = BaseDataset(options)
+        self.mgn_dataset = BaseDataset(options, split)
         # self.mgn_dataset[0]
         self.length = self.mgn_dataset.length
         
