@@ -6,11 +6,7 @@ Created on Tue Oct 13 22:11:39 2020
 @author: zhantao
 """
 from os import makedirs
-from os.path import join as pjn, isfile, exists, abspath
-import sys
-if abspath('./') not in sys.path:
-    sys.path.append(abspath('./'))
-    sys.path.append(abspath('./third_party/smpl_webuser'))
+from os.path import join as pjn, isfile, exists
 import pickle
 import errno
 from math import floor

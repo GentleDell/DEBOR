@@ -18,13 +18,14 @@ class TrainOptions(object):
 
         data = self.parser.add_argument_group('Data')
         data.add_argument('--graph_matrics_path', default='/home/zhantao/Documents/masterProject/DEBOR/body_model/mesh_downsampling.npz', help='path to graph adjacency matrix and upsampling/downsampling matrices') 
-        data.add_argument('--smpl_model_path', default='/home/zhantao/Documents/masterProject/DEBOR/body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl', help='path to graph adjacency matrix and upsampling/downsampling matrices') 
+        data.add_argument('--smpl_model_path', default='/home/zhantao/Documents/masterProject/DEBOR/body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl', help='path to SMPL model') 
+        data.add_argument('--smpl_edges_path', default='/home/zhantao/Documents/masterProject/DEBOR/body_model/edges_smpl.npy', help='path to SMPL edges(from CAPE).') 
         data.add_argument('--img_per_object', default=48) 
 
         gen = self.parser.add_argument_group('General')
         gen.add_argument('--resume', dest='resume', default=False, action='store_true', help='Resume from checkpoint (Use latest checkpoint by default')
         gen.add_argument('--num_workers', type=int, default=8, help='Number of processes used for data loading')
-        gen.add_argument('--name', default='MGN_GCMR_lr3e-3', help='Name of the experiment')
+        gen.add_argument('--name', default='verfStructure', help='Name of the experiment')
         pin = gen.add_mutually_exclusive_group()
         pin.add_argument('--pin_memory', dest='pin_memory', action='store_true', help='pin memory to speedup training')
         pin.add_argument('--no_pin_memory', dest='pin_memory', action='store_false', help='do not pin memory')
@@ -37,7 +38,7 @@ class TrainOptions(object):
         io.add_argument('--pretrained_checkpoint', default=None, help='Load a pretrained Graph CNN when starting training') 
 
         arch = self.parser.add_argument_group('Architecture')
-        arch.add_argument('--model', default='unet', choices=['graphcnn', 'sizernn', 'unet'], help='The model to be trained') 
+        arch.add_argument('--model', default='graphcnn', choices=['graphcnn', 'sizernn', 'unet'], help='The model to be trained') 
         arch.add_argument('--num_channels', type=int, default=256, help='Number of channels in Graph Residual layers') 
         arch.add_argument('--num_layers', type=int, default=5, help='Number of residuals blocks in the Graph CNN') 
         arch.add_argument('--latent_size', type=int, default=200, help='size of latent vector in sizernet') 
@@ -60,6 +61,11 @@ class TrainOptions(object):
         train.add_argument('--no_augmentation', dest='use_augmentation', default=True, action='store_false', help='Don\'t do augmentation') 
         train.add_argument('--no_augmentation_rgb', dest='use_augmentation_rgb', default=True, action='store_false', help='Don\'t do color jittering during training') 
         
+        loss = self.parser.add_argument_group('Losses Options')
+        loss.add_argument('--weight_disps', type=float, default=1, help='The weight of shape loss of displacements') 
+        loss.add_argument('--weight_normal', type=float, default=0.1, help='The weight of normal loss of triangles') 
+        loss.add_argument('--weight_edges', type=float, default=1, help='The weight of egde loss of body mesh') 
+        
         shuffle_train = train.add_mutually_exclusive_group()
         shuffle_train.add_argument('--shuffle_train', dest='shuffle_train', action='store_true', help='Shuffle training data')
         shuffle_train.add_argument('--no_shuffle_train', dest='shuffle_train', action='store_false', help='Don\'t shuffle training data')
@@ -69,6 +75,7 @@ class TrainOptions(object):
         optim.add_argument('--adam_beta1', type=float, default=0.9, help='Value for Adam Beta 1')
         optim.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
         optim.add_argument("--wd", type=float, default=0, help="Weight decay weight")
+        
         return 
 
     def parse_args(self):

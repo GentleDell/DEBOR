@@ -71,7 +71,7 @@ class Mesh(object):
         self.num_downsampling = num_downsampling
 
         # load template vertices from SMPL and normalize them
-        smpl = SMPL(options.smpl_model_path)
+        smpl = SMPL(options.smpl_model_path, device)
         ref_vertices = smpl.v_template
         center = 0.5*(ref_vertices.max(dim=0)[0] + ref_vertices.min(dim=0)[0])[None]
         ref_vertices -= center

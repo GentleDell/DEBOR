@@ -7,55 +7,92 @@ Created on Sun Nov 29 17:05:16 2020
 """
 from os.path import abspath
 import sys
-if abspath('./') not in sys.path:
-    sys.path.append(abspath('./'))
-    sys.path.append(abspath('./third_party/kaolin'))
+
+if __name__ == '__main__':
+    if abspath('../') not in sys.path:
+        sys.path.append(abspath('../'))
+        sys.path.append(abspath('../third_party/kaolin/'))
     
+from kaolin.rep import TriangleMesh as tm
 import torch
+import open3d as o3d
 
 
-def normal_loss(bs, pred_mesh, gt_mesh, body_mesh, num_faces):
-    body_normals = []
-    gt_normals = []
-    pred_normals = []
-    for i in range(bs):
-        b_normal = body_mesh[i].compute_face_normals()
-        body_normals.append(b_normal)
+def normal_loss(pred_verts, gt_verts, triplets):
+    '''
+    Compute the normal differences of triangles(facet) of the predicted verts
+    and GT verts, through the Kaolin package.
+
+    Parameters
+    ----------
+    pred_verts : Tensor
+        Predicted displacements + body vertices, [B,V,3].
+    gt_verts : Tensor
+        GT displacements + body vertices, [B,V,3].
+    triplets : Tensor
+        The triangles of the mesh, [B,C,3].
+
+    Returns
+    -------
+    loss_face_normal : Tensor
+        Normal difference.
+
+    '''
+    # prepare and cast data type
+    device = pred_verts.device
+    batchSize = pred_verts.shape[0]
+    num_faces = triplets.shape[0]
+    triplets = triplets.type(torch.LongTensor).to(device)
+    
+    # create kaolin tri mesh
+    pred_mesh = [tm.from_tensors(vertices=v,
+                faces=triplets) for v in pred_verts]
+    gt_mesh = [tm.from_tensors(vertices=v,
+               faces=triplets) for v in gt_verts]
+    
+    # compute normals
+    gt_face_normals, pred_face_normals = [], []
+    for i in range(batchSize):
+               
+        # triangle facets' normals 
+        #     comparing to open3d, residual diff is at 1e-4 level
         gt_nromal = gt_mesh[i].compute_face_normals()
         pred_normal = pred_mesh[i].compute_face_normals()
-        gt_normals.append(gt_nromal)
-        pred_normals.append(pred_normal)
-
-    body_normals = torch.stack(body_normals)
-    gt_normals = torch.stack(gt_normals)
-    pred_normals = torch.stack(pred_normals)
-    loss_norm = torch.sum(torch.sum((1 - gt_normals) * pred_normals, dim=2).abs()) / (bs * num_faces)
-
-    # in CAPE
-    # cos = tf.reduce_sum(tf.multiply(normals_pred, normals_gt), axis=-1)
-    # cos_abs = tf.abs(cos)
-    # normal_loss = 1 - cos_abs
-
-    return loss_norm, body_normals, pred_normals
+        gt_face_normals.append(gt_nromal)
+        pred_face_normals.append(pred_normal)
+    
+    gt_face_normals = torch.stack(gt_face_normals)
+    pred_face_normals = torch.stack(pred_face_normals)
+    
+    # triangle facets' normal loss
+    loss_face_normal = torch.sum( 1 - torch.sum( gt_face_normals * pred_face_normals, dim=2).abs() ) \
+                        / (batchSize * num_faces)
+    
+    return loss_face_normal
 
 
-def edge_loss_calc(pred, gt, vpe):
+def edge_loss(pred_verts, gt_verts, vpe):
     '''
-    Calculate edge loss measured by difference in the length
+    Calculate edge loss measured by difference in the length. 
+    
+    Adapted from CAPE.
+    
     args:
-        pred: prediction, [batch size, num_verts (6890), 3]
-        gt: ground truth, [batch size, num_verts (6890), 3]
+        pred_verts: prediction, [batch size, num_verts (6890), 3]
+        gt_verts: ground truth, [batch size, num_verts (6890), 3]
         vpe: SMPL vertex-edges correspondence table, [20664, 2]
     returns:
-        edge_obj, an array of size [batch_size, 20664], each element of the second dimension is the
-        length of the difference vector between corresponding edges in GT and in pred
+        loss_edge: L2 norm loss of edge difference.
     '''
     # get vectors of all edges, have size (batch_size, 20664, 3)
-    edges_vec = lambda x: tf.gather(x,vpe[:,0],axis=1) -  tf.gather(x,vpe[:,1],axis=1)
-    edge_diff = edges_vec(pred) -edges_vec(gt) # elwise diff between the set of edges in the gt and set of edges in pred
-    edge_obj = tf.norm(edge_diff, ord='euclidean', axis=-1)
+    edges_pred = pred_verts[:, vpe[:,0]] - pred_verts[:, vpe[:,1]] 
+    edges_gt   = gt_verts[:, vpe[:,0]] - gt_verts[:, vpe[:,1]] 
+    
+    edge_diff = edges_pred - edges_gt
+    
+    loss_edge = edge_diff.norm(dim = 2).mean(dim = 1).sum()/pred_verts.shape[0]
 
-    return tf.reduce_mean(edge_obj)
+    return loss_edge
 
 
 def MS_DSSIM():

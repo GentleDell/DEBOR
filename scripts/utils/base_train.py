@@ -72,8 +72,18 @@ class BaseTrain(object):
                                               initial=train_data_loader.checkpoint_batch_idx),
                                          train_data_loader.checkpoint_batch_idx):
                 
-                batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k,v in batch.items()}
-                out = self.train_step(batch)
+                # convert data devices
+                batch_toDEV = {}
+                for key, val in batch.items():
+                    if isinstance(val, torch.Tensor):
+                        batch_toDEV[key] = val.to(self.device)
+                    if isinstance(val, dict):
+                        batch_toDEV[key] = {}
+                        for k, v in val.items():
+                            if isinstance(v, torch.Tensor):
+                                batch_toDEV[key][k] = v.to(self.device)
+                
+                out = self.train_step(batch_toDEV)
                 self.step_count += 1
                 
                 # Do backprop

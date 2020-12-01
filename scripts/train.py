@@ -5,13 +5,22 @@ Created on Thu Nov 19 22:12:46 2020
 
 @editor: zhantao
 """
+from os.path import abspath
+import sys
+if abspath('./') not in sys.path:
+    sys.path.append(abspath('./'))
+    sys.path.append(abspath('./third_party/smpl_webuser'))
+    sys.path.append(abspath('./third_party/kaolin'))
 
 import torch
 import torch.nn as nn
+torch.autograd.set_detect_anomaly(True)
+import numpy as np
 
 from dataset import MGNDataset
 from utils import Mesh, BaseTrain, CheckpointDataLoader
-from models import GraphCNN, res50_plus_Dec, UNet
+from models import GraphCNN, res50_plus_Dec, UNet, SMPL
+from models.loss import normal_loss, edge_loss
 from train_cfg import TrainOptions
 
 
@@ -29,10 +38,16 @@ class trainer(BaseTrain):
                     pin_memory  = self.options.pin_memory,
                     shuffle     = self.options.shuffle_train)
 
-        # Create Mesh object
+        # Create Mesh (graph) object
         self.mesh = Mesh(self.options, self.options.num_downsampling)
         self.faces = self.mesh.faces.to(self.device)
-
+        
+        # Create SMPL mesh object and edges
+        self.smpl = SMPL(self.options.smpl_model_path, self.device)
+        self.smplEdge = torch.Tensor(np.load(self.options.smpl_edges_path)) \
+                        .long()  \
+                        .to(self.device)     
+        
         # Create model
         if self.options.model == 'graphcnn':
             self.model = GraphCNN(
@@ -67,12 +82,11 @@ class trainer(BaseTrain):
         self.optimizers_dict = {'optimizer': self.optimizer}
     
     def shape_loss(self, pred_vertices, gt_vertices):
-        """Compute per-vertex loss on the shape for the examples that SMPL annotations are available."""
+        """
+        Compute per-vertex loss on the shape for the examples that SMPL 
+        annotations are available.
+        """
         return self.criterion_shape(pred_vertices, gt_vertices)
-    
-    def edges_loss(self, pred_vertices, gt_vertices):
-        
-        return None
     
     def uvMap_loss(self, pred_UVMap, gt_UVMap):
         """Compute per-pixel loss on the uv texture map."""
@@ -85,27 +99,45 @@ class trainer(BaseTrain):
         # Grab data from the batch
         images = input_batch['img']
 
+        # Grab GT SMPL parameters and create body body for displacements
+        body_vertices = self.smpl(input_batch['smplGT']['pose'].to(torch.float), 
+                                  input_batch['smplGT']['betas'].to(torch.float), 
+                                  input_batch['smplGT']['trans'].to(torch.float)
+                                  )
+
         # Feed image and pose in the GraphCNN
         # Returns full mesh
-        pose = (None, input_batch['smplGT']['pose'].to(self.device))[self.options.append_pose]
-
+        pose = (None, input_batch['smplGT']['pose'])[self.options.append_pose]
+        
         # Compute losses
         if self.options.model == 'unet':
-            gt_uvMaps  = input_batch['UVmapGT'].to(self.device)
+            gt_uvMaps  = input_batch['UVmapGT']
             pred_uvMap = self.model(images, pose)
             loss_uv = self.uvMap_loss(pred_uvMap, gt_uvMaps)
             out_args = {'predict_unMap': pred_uvMap, 
                         'loss_basic': loss_uv
                         }
         else:
-            gt_vertices_disp = input_batch['meshGT']['displacement'].to(self.device)
+            gt_vertices_disp = input_batch['meshGT']['displacement']
             pred_vertices_disp = self.model(images, pose)
             loss_shape = self.shape_loss(pred_vertices_disp, gt_vertices_disp)
+            
+            dressbodyPred = pred_vertices_disp + body_vertices
+            dressbodyGT = gt_vertices_disp + body_vertices
+            loss_normal = normal_loss(dressbodyPred, dressbodyGT, self.faces)
+            
+            loss_edges  = edge_loss(dressbodyPred, dressbodyGT, self.smplEdge)
+            
             out_args = {'predict_vertices': pred_vertices_disp, 
-                        'loss_basic': loss_shape
+                        'loss_basic': loss_shape,
+                        'loss_normal': loss_normal,
+                        'loss_egdes': loss_edges
                         }
         # Add losses to compute the total loss
-        loss = out_args['loss_basic']
+        loss = self.options.weight_disps  * out_args['loss_basic'] + \
+               self.options.weight_normal * out_args['loss_normal'] +\
+               self.options.weight_edges  * out_args['loss_egdes']
+               
         out_args['loss'] = loss
         
         return out_args
@@ -117,9 +149,19 @@ class trainer(BaseTrain):
         test_loss_basic, test_loss = 0, 0
         for step, batch in enumerate(self.test_data_loader):
             
-            batch = {k: v.to(self.device) if isinstance(v, torch.Tensor) else v for k,v in batch.items()}
+            # convert data devices
+            batch_toDEV = {}
+            for key, val in batch.items():
+                if isinstance(val, torch.Tensor):
+                    batch_toDEV[key] = val.to(self.device)
+                if isinstance(val, dict):
+                    batch_toDEV[key] = {}
+                    for k, v in val.items():
+                        if isinstance(v, torch.Tensor):
+                            batch_toDEV[key][k] = v.to(self.device)
+                                
             with torch.no_grad():    # disable grad
-                out = self.train_step(batch)
+                out = self.train_step(batch_toDEV)
                     
             test_loss += out['loss']
             test_loss_basic += out['loss_basic']

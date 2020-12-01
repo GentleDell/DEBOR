@@ -15,7 +15,7 @@ from .geometric_layers import rodrigues
 
 class SMPL(nn.Module):
 
-    def __init__(self, model_file):
+    def __init__(self, model_file, device):
         super(SMPL, self).__init__()
         with open(model_file, 'rb') as f:
             smpl_model = pickle.load(f, encoding='iso-8859-1')
@@ -26,23 +26,23 @@ class SMPL(nn.Module):
         i = torch.LongTensor([row, col])
         v = torch.FloatTensor(data)
         J_regressor_shape = [24, 6890]
-        self.register_buffer('J_regressor', torch.sparse.FloatTensor(i, v, J_regressor_shape).to_dense())
-        self.register_buffer('weights', torch.FloatTensor(smpl_model['weights']))
-        self.register_buffer('posedirs', torch.FloatTensor(smpl_model['posedirs']))
-        self.register_buffer('v_template', torch.FloatTensor(smpl_model['v_template']))
-        self.register_buffer('shapedirs', torch.FloatTensor(np.array(smpl_model['shapedirs'])))
-        self.register_buffer('faces', torch.from_numpy(smpl_model['f'].astype(np.int64)))
-        self.register_buffer('kintree_table', torch.from_numpy(smpl_model['kintree_table'].astype(np.int64)))
+        self.register_buffer('J_regressor', torch.sparse.FloatTensor(i, v, J_regressor_shape).to_dense().to(device))
+        self.register_buffer('weights', torch.FloatTensor(smpl_model['weights']).to(device))
+        self.register_buffer('posedirs', torch.FloatTensor(smpl_model['posedirs']).to(device))
+        self.register_buffer('v_template', torch.FloatTensor(smpl_model['v_template']).to(device))
+        self.register_buffer('shapedirs', torch.FloatTensor(np.array(smpl_model['shapedirs'])).to(device))
+        self.register_buffer('faces', torch.from_numpy(smpl_model['f'].astype(np.int64)).to(device))
+        self.register_buffer('kintree_table', torch.from_numpy(smpl_model['kintree_table'].astype(np.int64)).to(device))
         id_to_col = {self.kintree_table[1, i].item(): i for i in range(self.kintree_table.shape[1])}
-        self.register_buffer('parent', torch.LongTensor([id_to_col[self.kintree_table[0, it].item()] for it in range(1, self.kintree_table.shape[1])]))
+        self.register_buffer('parent', torch.LongTensor([id_to_col[self.kintree_table[0, it].item()] for it in range(1, self.kintree_table.shape[1])]).to(device))
 
         self.pose_shape = [24, 3]
         self.beta_shape = [10]
         self.translation_shape = [3]
 
-        self.pose = torch.zeros(self.pose_shape)
-        self.beta = torch.zeros(self.beta_shape)
-        self.translation = torch.zeros(self.translation_shape)
+        self.pose = torch.zeros(self.pose_shape).to(device)
+        self.beta = torch.zeros(self.beta_shape).to(device)
+        self.translation = torch.zeros(self.translation_shape).to(device)
 
         self.verts = None
         self.J = None
@@ -52,7 +52,7 @@ class SMPL(nn.Module):
         # self.register_buffer('J_regressor_extra', J_regressor_extra)
         # self.joints_idx = cfg.JOINTS_IDX
 
-    def forward(self, pose, beta):
+    def forward(self, pose, beta, trans):
         device = pose.device
         batch_size = pose.shape[0]
         v_template = self.v_template[None, :]
@@ -95,6 +95,8 @@ class SMPL(nn.Module):
         T = torch.matmul(self.weights, G.permute(1,0,2,3).contiguous().view(24,-1)).view(6890, batch_size, 4, 4).transpose(0,1)
         rest_shape_h = torch.cat([v_posed, torch.ones_like(v_posed)[:, :, [0]]], dim=-1)
         v = torch.matmul(T, rest_shape_h[:, :, :, None])[:, :, :3, 0]
+        
+        v = v + trans[:,None,:]
         return v
 
     # def get_joints(self, vertices):
