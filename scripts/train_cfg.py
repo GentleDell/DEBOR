@@ -33,7 +33,8 @@ class TrainOptions(object):
        
         io = self.parser.add_argument_group('io')
         io.add_argument('--log_dir', default='../logs', help='Directory to store logs')
-        io.add_argument('--mgn_dir', default='../datasets/Multi-Garment_dataset', help='Directory to store logs')
+        io.add_argument('--mgn_dir', default='../datasets/Multi-Garment_dataset', help='Directory to the dataset')
+        io.add_argument('--bgimg_dir', default='../datasets/background', help='Directory to backgound images')
         io.add_argument('--checkpoint', default=None, help='Path to save checkpoint')
         io.add_argument('--pretrained_checkpoint', default=None, help='Load a pretrained Graph CNN when starting training') 
 
@@ -60,10 +61,13 @@ class TrainOptions(object):
         train.add_argument('--scale_factor', type=float, default=0.25, help='rescale bounding boxes by a factor of [1-options.scale_factor,1+options.scale_factor]') 
         train.add_argument('--no_augmentation', dest='use_augmentation', default=True, action='store_false', help='Don\'t do augmentation') 
         train.add_argument('--no_augmentation_rgb', dest='use_augmentation_rgb', default=True, action='store_false', help='Don\'t do color jittering during training') 
+        train.add_argument('--replace_background', dest='replace_background', default=False, action='store_false', help='Replace background of the rendered images.') 
+        
         
         loss = self.parser.add_argument_group('Losses Options')
-        loss.add_argument('--weight_disps', type=float, default=1, help='The weight of shape loss of displacements') 
-        loss.add_argument('--weight_normal', type=float, default=0.1, help='The weight of normal loss of triangles') 
+        loss.add_argument('--weight_disps', type=float, default=10, help='The weight of shape loss of displacements') 
+        loss.add_argument('--weight_vertex_normal', type=float, default=0.1, help='The weight of normal loss of vertices')
+        loss.add_argument('--weight_triangle_normal', type=float, default=0.1, help='The weight of normal loss of triangles')
         loss.add_argument('--weight_edges', type=float, default=1, help='The weight of egde loss of body mesh') 
         
         shuffle_train = train.add_mutually_exclusive_group()

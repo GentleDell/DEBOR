@@ -11,17 +11,16 @@ import sys
 if __name__ == '__main__':
     if abspath('../') not in sys.path:
         sys.path.append(abspath('../'))
-        sys.path.append(abspath('../third_party/kaolin/'))
     
-from kaolin.rep import TriangleMesh as tm
 import torch
 import open3d as o3d
+from pytorch3d.structures import Meshes
 
 
-def normal_loss(pred_verts, gt_verts, triplets):
+def normal_loss(pred_verts, gt_verts, triplets, device = 'cpu'):
     '''
     Compute the normal differences of triangles(facet) of the predicted verts
-    and GT verts, through the Kaolin package.
+    and GT verts, through the pytorch3d package.
 
     Parameters
     ----------
@@ -39,36 +38,47 @@ def normal_loss(pred_verts, gt_verts, triplets):
 
     '''
     # prepare and cast data type
-    device = pred_verts.device
     batchSize = pred_verts.shape[0]
-    num_faces = triplets.shape[0]
-    triplets = triplets.type(torch.LongTensor).to(device)
+    num_verts = pred_verts.shape[1]
+    num_faces = triplets.shape[1]
     
-    # create kaolin tri mesh
-    pred_mesh = [tm.from_tensors(vertices=v,
-                faces=triplets) for v in pred_verts]
-    gt_mesh = [tm.from_tensors(vertices=v,
-               faces=triplets) for v in gt_verts]
+    # create pytorch3d tri mesh
+    pred_mesh = Meshes(verts=pred_verts, faces=triplets)
+    gt_mesh   = Meshes(verts=gt_verts, faces=triplets)
     
-    # compute normals
-    gt_face_normals, pred_face_normals = [], []
-    for i in range(batchSize):
-               
-        # triangle facets' normals 
-        #     comparing to open3d, residual diff is at 1e-4 level
-        gt_nromal = gt_mesh[i].compute_face_normals()
-        pred_normal = pred_mesh[i].compute_face_normals()
-        gt_face_normals.append(gt_nromal)
-        pred_face_normals.append(pred_normal)
+    # compute vertices and faces normals
+    pred_mesh_verts_norm = pred_mesh.verts_normals_packed()
+    pred_mesh_faces_norm = pred_mesh.faces_normals_packed()
     
-    gt_face_normals = torch.stack(gt_face_normals)
-    pred_face_normals = torch.stack(pred_face_normals)
+    gt_mesh_verts_norm   = gt_mesh.verts_normals_packed()
+    gt_mesh_faces_norm   = gt_mesh.faces_normals_packed()
     
-    # triangle facets' normal loss
-    loss_face_normal = torch.sum( 1 - torch.sum( gt_face_normals * pred_face_normals, dim=2).abs() ) \
-                        / (batchSize * num_faces)
+    # Debug:
+    #     residual error comparing to open3d is:
+    #     1e-7 for verts, 3e-4 or faces, on average.
+    # o3dMesh = o3d.geometry.TriangleMesh()
+    # o3dMesh.vertices = o3d.utility.Vector3dVector(gt_verts[0].detach().cpu())
+    # o3dMesh.triangles= o3d.utility.Vector3iVector(triplets[0].detach().cpu()) 
+    # o3dMesh.compute_vertex_normals()     
+    # o3dMesh.compute_triangle_normals()   
+    # pred_vn = np.array(o3dMesh.vertex_normals)
+    # pred_fn = np.array(o3dMesh.triangle_normals)
+    # o3dMesh.vertex_colors = o3d.utility.Vector3dVector(pred_fn[-6890:] - 
+    #                                     gt_mesh_faces_norm[13776-6890:13776]
+    #                                    .detach().cpu().numpy())
+    # o3d.visualization.draw_geometries([o3dMesh])
     
-    return loss_face_normal
+    # triangle verts' normal loss
+    loss_vert_normal = torch.sum( 
+        1 - torch.sum( gt_mesh_verts_norm*pred_mesh_verts_norm, dim=1
+                     ).abs()) / (batchSize * num_verts)
+    
+    # triangle faces' normal loss
+    loss_face_normal = torch.sum( 
+        1 - torch.sum( gt_mesh_faces_norm*pred_mesh_faces_norm, dim=1
+                     ).abs()) / (batchSize * num_faces)
+    
+    return loss_vert_normal, loss_face_normal
 
 
 def edge_loss(pred_verts, gt_verts, vpe):

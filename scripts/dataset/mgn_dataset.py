@@ -5,7 +5,7 @@ Created on Thu Nov 19 22:19:17 2020
 
 @editor: zhantao
 """
-from os.path import join as pjn
+from os.path import join as pjn, isdir
 from glob import glob
 from ast import literal_eval
 import pickle as pickle
@@ -41,6 +41,16 @@ class BaseDataset(Dataset):
             self.obj_dir = self.obj_dir[int(numOBJ*0.8) : int(numOBJ*0.9)]
         else:
             self.obj_dir = self.obj_dir[int(numOBJ*0.9):]
+        
+        # background image dir 
+        #    for rendered images, their background will be replaced by random 
+        #    images in the folder, if required.
+        enable_replacebg = options.replace_background and isdir(options.bgimg_dir) 
+        if enable_replacebg:
+            for subfolder in sorted(glob(pjn(options.bgimg_dir, '*'))):
+                self.bgimages = sorted(glob( pjn(options.bgimg_dir, '*.png') ))
+        else:
+            self.bgimages = None
         
         # load datatest
         self.imgname, self.center, self.scale = [], [], []
@@ -154,6 +164,10 @@ class BaseDataset(Dataset):
         # (3,224,224),float,[0,1]
         rgb_img = np.transpose(rgb_img.astype('float32'),(2,0,1))/255.0
         return rgb_img
+    
+    def background_replacing(self, image, bg_image):
+        
+        return image
 
     def __getitem__(self, index):
         item = {}
@@ -170,10 +184,20 @@ class BaseDataset(Dataset):
         except TypeError:
             print(imgname)
         orig_shape = np.array(img.shape)[:2]
+        
+        # read background image and replace the background
+        if self.bgimages is not None:
+            bgimgname = self.bgimages[np.random.randint(0, len(self.bgimages))]
+            try:
+                bgimg = cv2.imread(bgimgname)[:,:,::-1].copy().astype(np.float32)
+            except TypeError:
+                print(bgimgname)
+            img = self.background_replacing(img, bgimg)
 
         # Process image
         img = self.rgb_processing(img, center, sc*scale, rot, flip, pn)
         img = torch.from_numpy(img).float()
+        
         # Store image before normalization to use it in visualization
         item['img_orig'] = img.clone()
         item['img'] = self.normalize_img(img)    # normalize the input image 

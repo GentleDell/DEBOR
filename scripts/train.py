@@ -10,11 +10,9 @@ import sys
 if abspath('./') not in sys.path:
     sys.path.append(abspath('./'))
     sys.path.append(abspath('./third_party/smpl_webuser'))
-    sys.path.append(abspath('./third_party/kaolin'))
 
 import torch
 import torch.nn as nn
-torch.autograd.set_detect_anomaly(True)
 import numpy as np
 
 from dataset import MGNDataset
@@ -40,7 +38,10 @@ class trainer(BaseTrain):
 
         # Create Mesh (graph) object
         self.mesh = Mesh(self.options, self.options.num_downsampling)
-        self.faces = self.mesh.faces.to(self.device)
+        self.faces = torch.cat( self.options.batch_size * [
+                                self.mesh.faces.to(self.device)[None]
+                                ], dim = 0 )
+        self.faces = self.faces.type(torch.LongTensor).to(self.device)
         
         # Create SMPL mesh object and edges
         self.smpl = SMPL(self.options.smpl_model_path, self.device)
@@ -124,19 +125,23 @@ class trainer(BaseTrain):
             
             dressbodyPred = pred_vertices_disp + body_vertices
             dressbodyGT = gt_vertices_disp + body_vertices
-            loss_normal = normal_loss(dressbodyPred, dressbodyGT, self.faces)
+            loss_verts_normal, loss_faces_normal = normal_loss(
+                     dressbodyPred, dressbodyGT, self.faces, self.device)
             
             loss_edges  = edge_loss(dressbodyPred, dressbodyGT, self.smplEdge)
             
             out_args = {'predict_vertices': pred_vertices_disp, 
                         'loss_basic': loss_shape,
-                        'loss_normal': loss_normal,
+                        'loss_verts_normal': loss_verts_normal,
+                        'loss_faces_normal': loss_faces_normal,
                         'loss_egdes': loss_edges
                         }
+            
         # Add losses to compute the total loss
-        loss = self.options.weight_disps  * out_args['loss_basic'] + \
-               self.options.weight_normal * out_args['loss_normal'] +\
-               self.options.weight_edges  * out_args['loss_egdes']
+        loss = self.options.weight_disps * out_args['loss_basic'] + \
+               self.options.weight_vertex_normal * out_args['loss_verts_normal'] +\
+               self.options.weight_triangle_normal * out_args['loss_faces_normal'] +\
+               self.options.weight_edges * out_args['loss_egdes']
                
         out_args['loss'] = loss
         
