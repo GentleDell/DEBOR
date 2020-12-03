@@ -145,6 +145,12 @@ def render_MGN(camList: list, lightList: list, fileList: list,
             bpy.data.objects[0].select_set(True) 
             bpy.ops.object.delete()
             
+            # remove main Light if exist
+            for objname in bpy.data.objects.keys():
+                if 'world_Light' in objname:
+                    bpy.data.objects[objname].select_set(True) 
+                    bpy.ops.object.delete()
+            
             # create a new camera and link it to the scene
             camera_data = bpy.data.cameras.new(name='Camera')
             camera_object = bpy.data.objects.new('Camera', camera_data)
@@ -176,6 +182,19 @@ def render_MGN(camList: list, lightList: list, fileList: list,
                 output.write( str([camera['rotation'], camera['location']]) )
                 
                 
+            # create the world light above camera to provide basic light
+            worldLight = [camera['location'][0], camera['location'][1], camera['location'][2] + 2] 
+            bpy.ops.object.light_add( location = worldLight )
+            bpy.data.objects['Point'].name = 'world_Light'
+            light = bpy.data.objects['world_Light']
+            light.data.energy = 1000
+            light.select_set(False)
+            
+            # save the world light parameters
+            #    the location is under the 'world'('global') coordinate system.
+            with open(pjn( mats['sampleRootPath'], 'rendering/worldlight_for_camera%d'%camIdx+'.txt'), "w") as output:
+                output.write( str([worldLight, 1000]) )
+                
             # for each light settings
             for lightIdx, lightSetting in enumerate(lightList):
 
@@ -183,7 +202,7 @@ def render_MGN(camList: list, lightList: list, fileList: list,
                 bpy.data.objects[1].select_set(True) 
                 bpy.ops.object.delete() 
 
-                # create a new light at given position with given power
+                # create a new auxiliary light at given position with given power
                 bpy.ops.object.light_add( location = lightSetting['location'] )
                 bpy.data.objects[1].name = 'Light'
                 light = bpy.data.objects['Light']
@@ -198,7 +217,7 @@ def render_MGN(camList: list, lightList: list, fileList: list,
                 # save the light position
                 #    the location is under the 'world'('global') coordinate system.
                 with open(pjn( mats['sampleRootPath'], 'rendering/light%d'%lightIdx+'.txt'), "w") as output:
-                    output.write( str([camera['rotation'], camera['location']]) )
+                    output.write( str([lightSetting['location'], lightSetting['power']]) )
                 
 
 if __name__ == "__main__":

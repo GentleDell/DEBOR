@@ -26,7 +26,7 @@ light_horiz_distance: [4]       # horizontal distance of the lights
 
 
 # mesh displacements settings
-enable_displacement: False       # enable GT displacements computation 
+enable_displacement: True       # enable GT displacements computation 
 meshdiff_device: "cpu"          # on which device to compute the displacements
 number_separation: 10           # separate point cloud to reduce memory usage
 save_displacement: True         # whether to save the computed displament

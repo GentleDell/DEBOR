@@ -9,6 +9,7 @@ Created on Thu Oct 25 21:31:01 2020
 import ast
 import sys 
 sys.path.append( "../" )
+sys.path.append( "../third_party/smpl_webuser" )
 import pathlib
 import argparse
 import subprocess
@@ -264,7 +265,7 @@ if __name__ == "__main__":
             numCameras = cfgs['numCircCameras'] * len(cfgs['camera_heights']) * \
                           len(cfgs['camera_horiz_distance']) * len(cfgs['camera_resolution'])
             for cameraIdx in range(numCameras):
-                boundingbox( pjn(folder, 'rendering'), cameraIdx, marginSize = 25)
+                boundingbox( pjn(folder, 'rendering'), cameraIdx, marginSize = 10)
     
     
     
