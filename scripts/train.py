@@ -138,7 +138,7 @@ class trainer(BaseTrain):
                         }
             
         # Add losses to compute the total loss
-        loss = self.options.weight_disps * out_args['loss_basic'] + \
+        loss = self.options.weight_disps * out_args['loss_basic'] +\
                self.options.weight_vertex_normal * out_args['loss_verts_normal'] +\
                self.options.weight_triangle_normal * out_args['loss_faces_normal'] +\
                self.options.weight_edges * out_args['loss_egdes']

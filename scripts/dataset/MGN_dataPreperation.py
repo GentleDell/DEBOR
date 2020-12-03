@@ -137,14 +137,14 @@ def prepareData(cfgs: dict):
     
     # create camera list
     cameraList = easyCameras(numCircCameras = cfgs['numCircCameras'], 
-                             heights         = cfgs['camera_heights'], 
+                             heights        = cfgs['camera_heights'], 
                              resolution     = cfgs['camera_resolution'],
                              horiz_distance = cfgs['camera_horiz_distance'])
     
     # create light list
     lightList  = easyLights(numLight  = cfgs['numLight'],
                             power     = cfgs['light_power'],
-                            heights    =  cfgs['light_heights'],
+                            heights   = cfgs['light_heights'],
                             initAngle = cfgs['light_initAngle'], 
                             horiz_distance = cfgs['light_horiz_distance'])
     

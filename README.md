@@ -13,9 +13,10 @@ Implementation of dressed expressive body reconstruction (DEBOR)
 - tqdm
 - yaml
 - chumpy
-- nuscenes-devkit
 - trimesh
-- addict (required by open3d)
-- plyfile(required by open3d)
+- addict  (required by open3d)
+- plyfile (required by open3d)
+- sklearn (required by open3d.ml3d)
+- pandas  (required by open3d.ml3d)
 - open3d
 

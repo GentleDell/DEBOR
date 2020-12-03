@@ -25,7 +25,7 @@ class TrainOptions(object):
         gen = self.parser.add_argument_group('General')
         gen.add_argument('--resume', dest='resume', default=False, action='store_true', help='Resume from checkpoint (Use latest checkpoint by default')
         gen.add_argument('--num_workers', type=int, default=8, help='Number of processes used for data loading')
-        gen.add_argument('--name', default='verfStructure', help='Name of the experiment')
+        gen.add_argument('--name', default='GCMR_moreloss', help='Name of the experiment')
         pin = gen.add_mutually_exclusive_group()
         pin.add_argument('--pin_memory', dest='pin_memory', action='store_true', help='pin memory to speedup training')
         pin.add_argument('--no_pin_memory', dest='pin_memory', action='store_false', help='do not pin memory')
@@ -34,7 +34,7 @@ class TrainOptions(object):
         io = self.parser.add_argument_group('io')
         io.add_argument('--log_dir', default='../logs', help='Directory to store logs')
         io.add_argument('--mgn_dir', default='../datasets/Multi-Garment_dataset', help='Directory to the dataset')
-        io.add_argument('--bgimg_dir', default='../datasets/background', help='Directory to backgound images')
+        io.add_argument('--bgimg_dir', default='../datasets/ADE20K_2016_07_26', help='Directory to backgound images')
         io.add_argument('--checkpoint', default=None, help='Path to save checkpoint')
         io.add_argument('--pretrained_checkpoint', default=None, help='Load a pretrained Graph CNN when starting training') 
 
@@ -52,16 +52,16 @@ class TrainOptions(object):
         train = self.parser.add_argument_group('Training Options')
         train.add_argument('--num_epochs', type=int, default=100, help='Total number of training epochs')
         train.add_argument('--batch_size', type=int, default=2, help='Batch size')
-        train.add_argument('--summary_steps', type=int, default=2, help='Summary saving frequency')
-        train.add_argument('--checkpoint_steps', type=int, default=4, help='Checkpoint saving frequency')
-        train.add_argument('--test_steps', type=int, default=4, help='Testing frequency')
+        train.add_argument('--summary_steps', type=int, default=20, help='Summary saving frequency')
+        train.add_argument('--checkpoint_steps', type=int, default=100, help='Checkpoint saving frequency')
+        train.add_argument('--test_steps', type=int, default=100, help='Testing frequency')
         train.add_argument('--num_downsampling', type=int, default=0, help='number of times downsampling the smpl mesh') 
         train.add_argument('--rot_factor', type=float, default=30, help='Random rotation in the range [-rot_factor, rot_factor]') 
         train.add_argument('--noise_factor', type=float, default=0.4, help='Random rotation in the range [-rot_factor, rot_factor]') 
         train.add_argument('--scale_factor', type=float, default=0.25, help='rescale bounding boxes by a factor of [1-options.scale_factor,1+options.scale_factor]') 
-        train.add_argument('--no_augmentation', dest='use_augmentation', default=True, action='store_false', help='Don\'t do augmentation') 
-        train.add_argument('--no_augmentation_rgb', dest='use_augmentation_rgb', default=True, action='store_false', help='Don\'t do color jittering during training') 
-        train.add_argument('--replace_background', dest='replace_background', default=False, action='store_false', help='Replace background of the rendered images.') 
+        train.add_argument('--augmentation', dest='use_augmentation', default=True, action='store_false', help='Do augmentation') 
+        train.add_argument('--augmentation_rgb', dest='use_augmentation_rgb', default=True, action='store_false', help='Do color jittering during training') 
+        train.add_argument('--replace_background', dest='replace_background', default=True, action='store_false', help='Replace background of the rendered images.') 
         
         
         loss = self.parser.add_argument_group('Losses Options')
@@ -77,7 +77,7 @@ class TrainOptions(object):
         
         optim = self.parser.add_argument_group('Optimization')
         optim.add_argument('--adam_beta1', type=float, default=0.9, help='Value for Adam Beta 1')
-        optim.add_argument("--lr", type=float, default=3e-4, help="Learning rate")
+        optim.add_argument("--lr", type=float, default=3e-3, help="Learning rate")
         optim.add_argument("--wd", type=float, default=0, help="Weight decay weight")
         
         return 

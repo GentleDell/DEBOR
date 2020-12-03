@@ -27,12 +27,14 @@ class BaseDataset(Dataset):
     def __init__(self, options, use_augmentation=True, split='train'):
         super(BaseDataset, self).__init__()
         
-        # split the dataset into 80%, 10% and 10%
-        assert split in ('train', 'test', 'validation')
-        self.split = split
+        # store options
         self.options = options
         
-        # split objects from train, test and validation
+        # split the dataset into 80%, 10% and 10% 
+        # for train, test and validation
+        assert split in ('train', 'test', 'validation')
+        self.split = split
+        
         self.obj_dir = sorted( glob(pjn(options.mgn_dir, '*')) )
         numOBJ = len(self.obj_dir)
         if split == 'train':
@@ -45,10 +47,17 @@ class BaseDataset(Dataset):
         # background image dir 
         #    for rendered images, their background will be replaced by random 
         #    images in the folder, if required.
+        #
+        #    training images and testing/validation image have backgrounds 
+        #    from differernt folder.
         enable_replacebg = options.replace_background and isdir(options.bgimg_dir) 
         if enable_replacebg:
-            for subfolder in sorted(glob(pjn(options.bgimg_dir, '*'))):
-                self.bgimages = sorted(glob( pjn(options.bgimg_dir, '*.png') ))
+            self.bgimages = []
+            imgsrc = ('images/validation/*', 'images/training/*')[split == 'train']
+            for subfolder in sorted(glob(pjn(options.bgimg_dir, imgsrc))):
+                for subsubfolder in sorted( glob( pjn(subfolder, '*') ) ):
+                    if 'room' in subsubfolder:
+                        self.bgimages += sorted(glob( pjn(subsubfolder, '*.jpg'))) 
         else:
             self.bgimages = None
         
@@ -107,7 +116,7 @@ class BaseDataset(Dataset):
                                      'trans': registration['trans']})
             
             # read and resize UV texture map
-            UV_textureMap = cv2.imread( pjn(obj, 'registered_tex.jpg') )
+            UV_textureMap = cv2.imread( pjn(obj, 'registered_tex.jpg') )/255.0
             UV_textureMap = cv2.resize(UV_textureMap, (self.options.img_res, self.options.img_res), cv2.INTER_CUBIC)
             self.UVmapGT.append(UV_textureMap)
             
@@ -117,9 +126,14 @@ class BaseDataset(Dataset):
         self.normalize_img = Normalize(mean=IMG_NORM_MEAN, std=IMG_NORM_STD)       
 	
         # If False, do not do augmentation
-        self.use_augmentation = use_augmentation
-	
+        self.use_augmentation = use_augmentation and self.options.use_augmentation
+        self.use_augmentation_rgb = use_augmentation and self.options.use_augmentation_rgb
+        
+        # lenght of dataset
         self.length = len(self.imgname)
+        
+        # define the correspondence between image and background in advance
+        self.bgperm = np.random.randint(0, len(self.bgimages), size = self.length)
 
     def augm_params(self):
         """Get augmentation parameters."""
@@ -152,20 +166,50 @@ class BaseDataset(Dataset):
 
     def rgb_processing(self, rgb_img, center, scale, rot, flip, pn):
         """Process rgb image and do augmentation."""
-        rgb_img = crop(rgb_img, center, scale, 
-                      [self.options.img_res, self.options.img_res], rot=rot)
+        # crop and rotate the image
+        if self.use_augmentation:
+            rgb_img = crop(rgb_img, center, scale, 
+                          [self.options.img_res, self.options.img_res], rot=rot)
+        else:
+            rgb_img = crop(rgb_img, center, scale, 
+                          [self.options.img_res, self.options.img_res], rot=0)
         # flip the image 
         if flip:
             rgb_img = flip_img(rgb_img)
         # in the rgb image we add pixel noise in a channel-wise manner
-        rgb_img[:,:,0] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,0]*pn[0]))
-        rgb_img[:,:,1] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,1]*pn[1]))
-        rgb_img[:,:,2] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,2]*pn[2]))
+        if self.use_augmentation_rgb:
+            rgb_img[:,:,0] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,0]*pn[0]))
+            rgb_img[:,:,1] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,1]*pn[1]))
+            rgb_img[:,:,2] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,2]*pn[2]))
         # (3,224,224),float,[0,1]
         rgb_img = np.transpose(rgb_img.astype('float32'),(2,0,1))/255.0
         return rgb_img
     
     def background_replacing(self, image, bg_image):
+        '''Replace the green background by a part of the gievn bg_image.'''
+        
+        # the size of background is at leaset a quater of the original 
+        # background image
+        scale = np.random.uniform(1, 4)
+        
+        # width-hight ratio of the body image
+        ratio = image.shape[1]/image.shape[0]
+        
+        size  = [int(bg_image.shape[0]/scale), int(bg_image.shape[1]/scale)]
+        size  = ([size[0], int(size[0]*ratio)], 
+                 [int(size[1]/ratio), size[1]])\
+                [size[0]*ratio > size[1]]
+        # random top left conner
+        tlcnr = [np.random.randint(0, bg_image.shape[0] - size[0]), 
+                 np.random.randint(0, bg_image.shape[1] - size[1])]
+        
+        # resize background image and replace
+        background = cv2.resize(bg_image[tlcnr[0] : tlcnr[0]+size[0], 
+                                         tlcnr[1] : tlcnr[1]+size[1]],
+                                (image.shape[1], image.shape[0]), 
+                                cv2.INTER_CUBIC) 
+        masks = image[:,:,1] == 255 
+        image[masks] = background[masks]
         
         return image
 
@@ -185,9 +229,9 @@ class BaseDataset(Dataset):
             print(imgname)
         orig_shape = np.array(img.shape)[:2]
         
-        # read background image and replace the background
+        # read background image and replace the background if available
         if self.bgimages is not None:
-            bgimgname = self.bgimages[np.random.randint(0, len(self.bgimages))]
+            bgimgname = self.bgimages[ self.bgperm[index] ]
             try:
                 bgimg = cv2.imread(bgimgname)[:,:,::-1].copy().astype(np.float32)
             except TypeError:
