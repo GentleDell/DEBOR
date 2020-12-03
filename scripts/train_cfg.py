@@ -60,7 +60,7 @@ class TrainOptions(object):
         train.add_argument('--noise_factor', type=float, default=0.4, help='Random rotation in the range [-rot_factor, rot_factor]') 
         train.add_argument('--scale_factor', type=float, default=0.25, help='rescale bounding boxes by a factor of [1-options.scale_factor,1+options.scale_factor]') 
         train.add_argument('--augmentation', dest='use_augmentation', default=True, action='store_false', help='Do augmentation') 
-        train.add_argument('--augmentation_rgb', dest='use_augmentation_rgb', default=True, action='store_false', help='Do color jittering during training') 
+        train.add_argument('--augmentation_rgb', dest='use_augmentation_rgb', default=False, action='store_false', help='Do color jittering during training') 
         train.add_argument('--replace_background', dest='replace_background', default=True, action='store_false', help='Replace background of the rendered images.') 
         
         

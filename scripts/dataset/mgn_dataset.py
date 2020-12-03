@@ -16,6 +16,7 @@ from torchvision.transforms import Normalize
 import numpy as np
 import cv2
 
+from utils.render_util import camera
 from utils.imutils import crop, flip_img
 
 
@@ -94,6 +95,14 @@ class BaseDataset(Dataset):
                     cameraExtrinsic = literal_eval(f.readline())
                     self.cameraExt.append(cameraExtrinsic)
                     
+                # test camera class
+                camthis = camera(projModel='perspective',
+                                 intrinsics = np.array(cameraIntrinsic))
+                camthis.setExtrinsic(rotation = np.array(cameraExtrinsic[0]), 
+                                     location = np.array(cameraExtrinsic[0]))
+                campara = camthis.getGeneralCamera()
+                raise ValueError('verifiy the camera.')    
+            
                 with open( pjn( path_to_rendering,'light%d.txt'%(lightIdx)) ) as f:
                     lightSettings = literal_eval(f.readline())
                     self.lights.append(lightSettings)           
@@ -133,7 +142,8 @@ class BaseDataset(Dataset):
         self.length = len(self.imgname)
         
         # define the correspondence between image and background in advance
-        self.bgperm = np.random.randint(0, len(self.bgimages), size = self.length)
+        if enable_replacebg:
+            self.bgperm = np.random.randint(0, len(self.bgimages), size = self.length)
 
     def augm_params(self):
         """Get augmentation parameters."""
@@ -190,7 +200,7 @@ class BaseDataset(Dataset):
         
         # the size of background is at leaset a quater of the original 
         # background image
-        scale = np.random.uniform(1, 4)
+        scale = np.random.uniform(1, 2)
         
         # width-hight ratio of the body image
         ratio = image.shape[1]/image.shape[0]

@@ -250,6 +250,32 @@ class camera():
         '''
         return (self.resolution_x, self.resolution_y)
 
+    def getGeneralCamera(self):
+        '''
+        This function returns the intrinsics and extrinsics of the camera in 
+        the general cases. I.e. extrinsic is from world to camera; the camera
+        coordinate is rightX-downY-frontZ, which is different in blender.
+
+        Returns
+        -------
+        dict
+            DESCRIPTION.
+
+        '''
+        # convert the blender camera coordinate system to the one used for 
+        # projection, i.e. from rightX-topY-backZ to rightX-downY-frontZ.
+        R_blcam2Img = np.array([[1, 0, 0],[0, -1, 0],[0, 0, -1]])
+        
+        # get the rotation and translation
+        R = np.array(self.getRotation(outformat='matrix'))
+        t = np.array(self.getLocation())
+        
+        # conver the transformation from blender type to projection type.
+        transformGeneral = R_blcam2Img @ np.hstack((R, -R@t[:,None]))
+        
+        return {'intrinsic': self.intrinsics,
+                'extrinsic': transformGeneral}
+
     def serialize(self):
         return {'rotation': self.getRotation(),
                 'location': self.getLocation(),

@@ -47,7 +47,7 @@ class meshDifferentiator():
         Path to the SMPL models file.
     self.num_separation : int
         In order to make memory footprint feasible, we separate the point
-        cloud to the given batches(separatiions). 
+        cloud to the given batches(separations). 
         
     self.max_displacement : float 
         The maximum acceptable displacements of each vertices.
@@ -865,7 +865,7 @@ def verifyOneGroundTruth(path_object: str, path_SMPLmodel: str,
         
 if __name__ == "__main__":
     
-    path_object = '../../datasets/Multi-Garment_dataset/125611495138902'
+    path_object = '../../datasets/SampleMGNDateset/125611487366942'
     
     with open('../dataset/dataset_preparation_cfg.yaml') as f:
         cfgs = yaml.load(f, Loader=yaml.FullLoader)
