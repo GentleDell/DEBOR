@@ -33,10 +33,14 @@ class TrainOptions(object):
        
         io = self.parser.add_argument_group('io')
         io.add_argument('--log_dir', default='../logs', help='Directory to store logs')
-        io.add_argument('--mgn_dir', default='../datasets/Multi-Garment_dataset', help='Directory to the dataset')
+        io.add_argument('--mgn_dir', default='../datasets/MGN_brighter', help='Directory to the dataset')
         io.add_argument('--bgimg_dir', default='../datasets/ADE20K_2016_07_26', help='Directory to backgound images')
         io.add_argument('--checkpoint', default=None, help='Path to save checkpoint')
         io.add_argument('--pretrained_checkpoint', default=None, help='Load a pretrained Graph CNN when starting training') 
+        ss = io.add_mutually_exclusive_group()
+        ss.add_argument('--save_aTestSample', dest='save_sample', action='store_true', help='save a sample during test')
+        ss.add_argument('--no_save_aTestSample', dest='save_sample', action='store_false', help='do not save samples')
+        io.set_defaults(save_sample=True)
 
         arch = self.parser.add_argument_group('Architecture')
         arch.add_argument('--model', default='graphcnn', choices=['graphcnn', 'sizernn', 'unet'], help='The model to be trained') 
@@ -47,37 +51,40 @@ class TrainOptions(object):
         app = gen.add_mutually_exclusive_group()
         app.add_argument('--append_pose', dest='append_pose', action='store_true', help='append pose vector to the image feature')
         app.add_argument('--no_append_pose', dest='append_pose', action='store_false', help='do not append pose')
-        gen.set_defaults(append_pose=False)
+        arch.set_defaults(append_pose=False)
 
         train = self.parser.add_argument_group('Training Options')
         train.add_argument('--num_epochs', type=int, default=100, help='Total number of training epochs')
         train.add_argument('--batch_size', type=int, default=2, help='Batch size')
         train.add_argument('--summary_steps', type=int, default=20, help='Summary saving frequency')
         train.add_argument('--checkpoint_steps', type=int, default=100, help='Checkpoint saving frequency')
-        train.add_argument('--test_steps', type=int, default=100, help='Testing frequency')
+        train.add_argument('--test_steps', type=int, default=2, help='Testing frequency')
         train.add_argument('--num_downsampling', type=int, default=0, help='number of times downsampling the smpl mesh') 
         train.add_argument('--rot_factor', type=float, default=30, help='Random rotation in the range [-rot_factor, rot_factor]') 
         train.add_argument('--noise_factor', type=float, default=0.4, help='Random rotation in the range [-rot_factor, rot_factor]') 
         train.add_argument('--scale_factor', type=float, default=0.25, help='rescale bounding boxes by a factor of [1-options.scale_factor,1+options.scale_factor]') 
         train.add_argument('--augmentation', dest='use_augmentation', default=True, action='store_false', help='Do augmentation') 
-        train.add_argument('--augmentation_rgb', dest='use_augmentation_rgb', default=False, action='store_false', help='Do color jittering during training') 
+        train.add_argument('--augmentation_rgb', dest='use_augmentation_rgb', default=True, action='store_false', help='Do color jittering during training') 
         train.add_argument('--replace_background', dest='replace_background', default=True, action='store_false', help='Replace background of the rendered images.') 
         
-        
+        # for the training of GCN, since the edge loss would reduce to 1e-3 level,
+        # other loss should be smaller than this order. Greater weight_disps would
+        # not further improve the reconstruction accuracy.
         loss = self.parser.add_argument_group('Losses Options')
-        loss.add_argument('--weight_disps', type=float, default=10, help='The weight of shape loss of displacements') 
-        loss.add_argument('--weight_vertex_normal', type=float, default=0.1, help='The weight of normal loss of vertices')
-        loss.add_argument('--weight_triangle_normal', type=float, default=0.1, help='The weight of normal loss of triangles')
-        loss.add_argument('--weight_edges', type=float, default=1, help='The weight of egde loss of body mesh') 
+        loss.add_argument('--weight_disps', type=float, default=1, help='The weight of shape loss of displacements') 
+        loss.add_argument('--weight_vertex_normal', type=float, default=0.001, help='The weight of normal loss of vertices')
+        loss.add_argument('--weight_triangle_normal', type=float, default=0.001, help='The weight of normal loss of triangles')
+        loss.add_argument('--weight_edges', type=float, default=0.01, help='The weight of egde loss of body mesh') 
         
         shuffle_train = train.add_mutually_exclusive_group()
         shuffle_train.add_argument('--shuffle_train', dest='shuffle_train', action='store_true', help='Shuffle training data')
         shuffle_train.add_argument('--no_shuffle_train', dest='shuffle_train', action='store_false', help='Don\'t shuffle training data')
-        shuffle_train.set_defaults(shuffle_train=True)
+        shuffle_train.set_defaults(shuffle_train=False)
         
+        # for the training of GCN, lr = 1e-3 would be enough, higher lr would not be very helpful
         optim = self.parser.add_argument_group('Optimization')
         optim.add_argument('--adam_beta1', type=float, default=0.9, help='Value for Adam Beta 1')
-        optim.add_argument("--lr", type=float, default=3e-3, help="Learning rate")
+        optim.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
         optim.add_argument("--wd", type=float, default=0, help="Weight decay weight")
         
         return 

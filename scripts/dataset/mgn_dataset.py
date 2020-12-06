@@ -96,12 +96,12 @@ class BaseDataset(Dataset):
                     self.cameraExt.append(cameraExtrinsic)
                     
                 # test camera class
-                camthis = camera(projModel='perspective',
-                                 intrinsics = np.array(cameraIntrinsic))
-                camthis.setExtrinsic(rotation = np.array(cameraExtrinsic[0]), 
-                                     location = np.array(cameraExtrinsic[0]))
-                campara = camthis.getGeneralCamera()
-                raise ValueError('verifiy the camera.')    
+                # camthis = camera(projModel='perspective',
+                #                   intrinsics = np.array(cameraIntrinsic))
+                # camthis.setExtrinsic(rotation = np.array(cameraExtrinsic[0]), 
+                #                       location = np.array(cameraExtrinsic[0]))
+                # campara = camthis.getGeneralCamera()
+                # raise ValueError('verifiy the camera.')    
             
                 with open( pjn( path_to_rendering,'light%d.txt'%(lightIdx)) ) as f:
                     lightSettings = literal_eval(f.readline())
@@ -110,13 +110,11 @@ class BaseDataset(Dataset):
             # read ground truth displacements and texture vector
             path_to_GT = pjn(obj, 'GroundTruth')
             displace   = np.load( pjn(path_to_GT, 'normal_guided_displacements_oversample_OFF.npy') )
-            displaceOv = np.load( pjn(path_to_GT, 'normal_guided_displacements_oversample_ON.npy') )
+            # displaceOv = np.load( pjn(path_to_GT, 'normal_guided_displacements_oversample_ON.npy') )
             texture    = np.load( pjn(path_to_GT, 'vertex_colors_oversample_OFF.npy') )
-            textureOv  = np.load( pjn(path_to_GT, 'vertex_colors_oversample_ON.npy') )
+            # textureOv  = np.load( pjn(path_to_GT, 'vertex_colors_oversample_ON.npy') )
             self.meshGT.append({'displacement': displace,
-                                'displacementOv': displaceOv,
-                                'texture': texture,
-                                'textureOv': textureOv})
+                                'texture': texture})
             
             # read smpl parameters
             registration = pickle.load(open( pjn(obj, 'registration.pkl'), 'rb'),  encoding='iso-8859-1')
@@ -144,6 +142,11 @@ class BaseDataset(Dataset):
         # define the correspondence between image and background in advance
         if enable_replacebg:
             self.bgperm = np.random.randint(0, len(self.bgimages), size = self.length)
+
+        # img = cv2.imread(self.imgname[251])[:,:,::-1].copy().astype(np.float32)
+        # bgimg = cv2.imread(self.bgimages[251])[:,:,::-1].copy().astype(np.float32)
+        # img = self.background_replacing(img, bgimg)
+        # plt.imshow(img/255)
 
     def augm_params(self):
         """Get augmentation parameters."""
@@ -218,7 +221,8 @@ class BaseDataset(Dataset):
                                          tlcnr[1] : tlcnr[1]+size[1]],
                                 (image.shape[1], image.shape[0]), 
                                 cv2.INTER_CUBIC) 
-        masks = image[:,:,1] == 255 
+        # green mask
+        masks = image[:,:,1].astype(int) == 255
         image[masks] = background[masks]
         
         return image
@@ -286,7 +290,9 @@ class MGNDataset(torch.utils.data.Dataset):
     
     def __init__(self, options, split='train'):
         super(MGNDataset, self).__init__()
-        self.mgn_dataset = BaseDataset(options, split)
+        self.mgn_dataset = BaseDataset(options, 
+                                       use_augmentation=True, 
+                                       split=split)
         # self.mgn_dataset[0]
         self.length = self.mgn_dataset.length
         

@@ -77,6 +77,9 @@ class BaseTrain(object):
                 for key, val in batch.items():
                     if isinstance(val, torch.Tensor):
                         batch_toDEV[key] = val.to(self.device)
+                    else:
+                        batch_toDEV[key] = val
+                        
                     if isinstance(val, dict):
                         batch_toDEV[key] = {}
                         for k, v in val.items():

@@ -5,7 +5,7 @@ Created on Thu Nov 19 22:12:46 2020
 
 @editor: zhantao
 """
-from os.path import abspath
+from os.path import abspath, isfile, join as pjn
 import sys
 if abspath('./') not in sys.path:
     sys.path.append(abspath('./'))
@@ -13,10 +13,13 @@ if abspath('./') not in sys.path:
 
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
 import numpy as np
+import open3d as o3d
 
 from dataset import MGNDataset
 from utils import Mesh, BaseTrain, CheckpointDataLoader
+from utils.mesh_util import create_fullO3DMesh
 from models import GraphCNN, res50_plus_Dec, UNet, SMPL
 from models.loss import normal_loss, edge_loss
 from train_cfg import TrainOptions
@@ -29,12 +32,12 @@ class trainer(BaseTrain):
         self.train_ds = MGNDataset(self.options, split = 'train')
         self.test_ds  = MGNDataset(self.options, split = 'test')
         
-        # test data loader is fixed
+        # test data loader is fixed and disable shuffle as it is unnecessary.
         self.test_data_loader = CheckpointDataLoader( self.test_ds,
                     batch_size  = self.options.batch_size,
                     num_workers = self.options.num_workers,
                     pin_memory  = self.options.pin_memory,
-                    shuffle     = self.options.shuffle_train)
+                    shuffle     = False)
 
         # Create Mesh (graph) object
         self.mesh = Mesh(self.options, self.options.num_downsampling)
@@ -118,6 +121,8 @@ class trainer(BaseTrain):
             out_args = {'predict_unMap': pred_uvMap, 
                         'loss_basic': loss_uv
                         }
+            loss = self.options.weight_disps * out_args['loss_basic']
+            
         else:
             gt_vertices_disp = input_batch['meshGT']['displacement']
             pred_vertices_disp = self.model(images, pose)
@@ -136,12 +141,11 @@ class trainer(BaseTrain):
                         'loss_faces_normal': loss_faces_normal,
                         'loss_egdes': loss_edges
                         }
-            
-        # Add losses to compute the total loss
-        loss = self.options.weight_disps * out_args['loss_basic'] +\
-               self.options.weight_vertex_normal * out_args['loss_verts_normal'] +\
-               self.options.weight_triangle_normal * out_args['loss_faces_normal'] +\
-               self.options.weight_edges * out_args['loss_egdes']
+            # Add losses to compute the total loss
+            loss = self.options.weight_disps * out_args['loss_basic'] +\
+                   self.options.weight_vertex_normal * out_args['loss_verts_normal'] +\
+                   self.options.weight_triangle_normal * out_args['loss_faces_normal'] +\
+                   self.options.weight_edges * out_args['loss_egdes']
                
         out_args['loss'] = loss
         
@@ -159,6 +163,9 @@ class trainer(BaseTrain):
             for key, val in batch.items():
                 if isinstance(val, torch.Tensor):
                     batch_toDEV[key] = val.to(self.device)
+                else:
+                        batch_toDEV[key] = val
+                        
                 if isinstance(val, dict):
                     batch_toDEV[key] = {}
                     for k, v in val.items():
@@ -171,6 +178,10 @@ class trainer(BaseTrain):
             test_loss += out['loss']
             test_loss_basic += out['loss_basic']
             
+            # save for comparison
+            if step == 0:
+                self.save_sample(batch_toDEV, out)
+            
         test_loss = test_loss/len(self.test_data_loader)
         test_loss_basic = test_loss_basic/len(self.test_data_loader)
         
@@ -179,6 +190,55 @@ class trainer(BaseTrain):
                        }
         self.test_summaries(lossSummary)
         
+    def save_sample(self, data, prediction, ind = 0):
+        """Saving a sample for visualization and comparison"""
+        folder = pjn(self.options.summary_dir, 'test/')
+        _input = pjn(folder, 'input_image.png')
+        
+        # save the input image, if not saved
+        if not isfile(_input):
+            plt.imsave(_input, data['img'][ind].cpu().permute(1,2,0).clamp(0,1).numpy())
+
+        if self.options.model == 'graphcnn':
+            # Grab GT SMPL parameters and create body body for displacements
+            body_vertices = self.smpl(
+                data['smplGT']['pose'][ind].to(torch.float)[None,:], 
+                data['smplGT']['betas'][ind].to(torch.float)[None,:], 
+                data['smplGT']['trans'][ind].to(torch.float)[None,:]).cpu()
+            
+            # Add displacements to naked body
+            predictedBody = body_vertices + \
+                            prediction['predict_vertices'][ind].cpu()[None,:]            
+            # Create predicted mesh and save it
+            predictedMesh = create_fullO3DMesh(predictedBody[0], self.faces.cpu()[0])
+            savepath = pjn( folder, '%s_iters%d_prediction.obj'%
+                           (data['imgname'][ind].split('/')[-1][:-4], 
+                            self.step_count) )
+            o3d.io.write_triangle_mesh(savepath, predictedMesh)
+            
+            # If there is no ground truth, create and save it
+            savepath = pjn( folder, '%s_groundtruth.obj'%
+                           (data['imgname'][ind].split('/')[-1][:-4]) )
+            if not isfile(savepath):
+                grndTruthBody = body_vertices + \
+                            data['meshGT']['displacement'][ind].cpu()[None,:]
+                grndTruthMesh = create_fullO3DMesh(grndTruthBody[0], self.faces.cpu()[0])
+                o3d.io.write_triangle_mesh(savepath, grndTruthMesh)
+            
+        elif self.options.model == 'unet':
+            # save predicted uvMap
+            savepath = pjn(folder, '%s_iters%d_prediction.png'%
+                           (data['imgname'][ind].split('/')[-1][:-4], 
+                            self.step_count) )
+            plt.imsave(savepath, 
+                       prediction['predict_unMap'][ind].cpu().clamp(0,1).numpy())
+            
+            # If there is no ground truth, create and save it
+            savepath = pjn(folder, '%s_groundtruth.png'%
+                           (data['imgname'][ind].split('/')[-1][:-4])) 
+            if not isfile(savepath):
+                plt.imsave(savepath, data['UVmapGT'][ind].cpu().numpy())
+            
 
 if __name__ == '__main__':
     # read preparation configurations

@@ -7,9 +7,13 @@ Created on Sun Nov 29 11:05:05 2020
 """
 import pickle
 from ast import literal_eval
-from os.path import join as pjn, isfile
+from os.path import join as pjn, isfile, abspath
 from collections import namedtuple
-
+import sys
+if abspath('./') not in sys.path:
+    sys.path.append(abspath('./'))
+    sys.path.append(abspath('./third_party/smpl_webuser'))
+    
 import json
 import torch
 import cv2
@@ -18,7 +22,8 @@ from numpy import array
 import open3d as o3d
 import matplotlib.pyplot as plt
 from torchvision.transforms import Normalize
- 
+
+from utils.imutils import crop
 from utils import Mesh, CheckpointSaver
 from utils.mesh_util import generateSMPLmesh, create_fullO3DMesh
 from models import GraphCNN, res50_plus_Dec, UNet
@@ -121,16 +126,24 @@ def inference(pathCkp: str, pathImg: str):
     IMG_NORM_STD = [0.229, 0.224, 0.225]
     normalize_img = Normalize(mean=IMG_NORM_MEAN, std=IMG_NORM_STD)  
     
-    img  = cv2.imread(pathImg)
-    img  = img[boundbox[0]:boundbox[2], boundbox[1]:boundbox[3]]
-    img  = cv2.resize(img, (options.img_res, options.img_res), cv2.INTER_CUBIC)
-    img  = normalize_img( torch.Tensor(img).permute(2,0,1) )/255
+    path_to_rendering = '/'.join(pathImg.split('/')[:-1])
+    cameraPath, lightPath = pathImg.split('/')[-1].split('_')[:2]
+    cameraIdx, _ = int(cameraPath[6:]), int(lightPath[5:])
+    with open( pjn( path_to_rendering,'camera%d_boundingbox.txt'%(cameraIdx)) ) as f:
+        boundbox = literal_eval(f.readline())
+    img  = cv2.imread(pathImg)[:,:,::-1].astype(np.float32)
+    center =  [(boundbox[0]+boundbox[2])/2, (boundbox[1]+boundbox[3])/2] 
+    scale  =  max((boundbox[2]-boundbox[0])/200, (boundbox[3]-boundbox[1])/200)
+    img  = crop(img, center, scale, [224, 224], rot=0)
+    
+    # img  = torch.Tensor(img).permute(2,0,1)/255
+    img  = normalize_img( torch.Tensor(img).permute(2,0,1)/255 )
     
     # Inference
     model.eval()    
     pose = None
     prediction = model(img[None,:,:,:].to(device), pose)
-        
+
     return prediction
     
 
@@ -147,5 +160,5 @@ if __name__ == '__main__':
     if prediction.shape[1] == 3:
         visPrediction(path_to_object, path_to_SMPL, prediction, False)
     else:
-        plt.imshow(prediction.permute(1,2,0))
+        plt.imshow(prediction)
         plt.show()
