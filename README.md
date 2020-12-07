@@ -5,10 +5,11 @@ Implementation of dressed expressive body reconstruction (DEBOR)
 ## Required
 - python 3.7
 - pytorch
+- pytorch3D
 - tensorboardx
 - numpy
 - scipy
-- opencv
+- opencv (>4.0, v3.4.2 does not work)
 - matplotlib
 - tqdm
 - yaml

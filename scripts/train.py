@@ -9,8 +9,11 @@ from os.path import abspath, isfile, join as pjn
 import sys
 if abspath('./') not in sys.path:
     sys.path.append(abspath('./'))
+if abspath('./third_party/smpl_webuser') not in sys.path:
     sys.path.append(abspath('./third_party/smpl_webuser'))
 
+from tqdm import tqdm
+tqdm.monitor_interval = 0
 import torch
 import torch.nn as nn
 import matplotlib.pyplot as plt
@@ -24,6 +27,8 @@ from models import GraphCNN, res50_plus_Dec, UNet, SMPL
 from models.loss import normal_loss, edge_loss
 from train_cfg import TrainOptions
 
+# ignore all alert from open3d except error messages
+o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 
 class trainer(BaseTrain):
     
@@ -156,7 +161,10 @@ class trainer(BaseTrain):
         self.model.eval()    
         
         test_loss_basic, test_loss = 0, 0
-        for step, batch in enumerate(self.test_data_loader):
+        for step, batch in enumerate(tqdm(self.test_data_loader, desc='Test',
+                                          total=len(self.test_ds) // self.options.batch_size,
+                                          initial=self.test_data_loader.checkpoint_batch_idx),
+                                     self.test_data_loader.checkpoint_batch_idx):
             
             # convert data devices
             batch_toDEV = {}
