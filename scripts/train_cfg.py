@@ -56,9 +56,9 @@ class TrainOptions(object):
         train = self.parser.add_argument_group('Training Options')
         train.add_argument('--num_epochs', type=int, default=100, help='Total number of training epochs')
         train.add_argument('--batch_size', type=int, default=2, help='Batch size')
-        train.add_argument('--summary_steps', type=int, default=20, help='Summary saving frequency')
-        train.add_argument('--checkpoint_steps', type=int, default=100, help='Checkpoint saving frequency')
-        train.add_argument('--test_steps', type=int, default=2, help='Testing frequency')
+        train.add_argument('--summary_steps', type=int, default=2, help='Summary saving frequency')
+        train.add_argument('--checkpoint_steps', type=int, default=4, help='Checkpoint saving frequency')
+        train.add_argument('--test_steps', type=int, default=4, help='Testing frequency')
         train.add_argument('--num_downsampling', type=int, default=0, help='number of times downsampling the smpl mesh') 
         train.add_argument('--rot_factor', type=float, default=30, help='Random rotation in the range [-rot_factor, rot_factor]') 
         train.add_argument('--noise_factor', type=float, default=0.4, help='Random rotation in the range [-rot_factor, rot_factor]') 
@@ -70,16 +70,27 @@ class TrainOptions(object):
         # for the training of GCN, since the edge loss would reduce to 1e-3 level,
         # other loss should be smaller than this order. Greater weight_disps would
         # not further improve the reconstruction accuracy.
-        loss = self.parser.add_argument_group('Losses Options')
+        loss = self.parser.add_argument_group('Losses Options') 
+        loss.add_argument('--enable_vertLoss', dest='enable_vertLoss', default=True, action='store_false', help='enable vetrices loss as training loss') 
+        loss.add_argument('--enable_edgeLoss', dest='enable_edgeLoss', default=True, action='store_false', help='enable edge loss as training loss') 
+        loss.add_argument('--enable_normalLoss', dest='enable_normalLoss', default=True, action='store_false', help='enable normal loss as training loss') 
+        loss.add_argument('--enable_renderingLoss', dest='enable_renderingLoss', default=False, action='store_false', help='enable rendering loss as training loss') 
+        loss.add_argument('--enable_MS_DSSIM_Loss_verts', dest='enable_MS_DSSIM_Loss_verts', default=False, action='store_false', help='enable MS-DSSIM loss of vertices as training loss') 
+        loss.add_argument('--enable_uvmapLoss', dest='enable_uvmapLoss', default=True, action='store_false', help='enable uv map loss as training loss') 
+        loss.add_argument('--enable_MS_DSSIM_Loss_uv', dest='enable_MS_DSSIM_Loss_uv', default=True, action='store_false', help='enable MS-DSSIM loss of uv map as training loss')         
         loss.add_argument('--weight_disps', type=float, default=1, help='The weight of shape loss of displacements') 
+        loss.add_argument('--weight_edges', type=float, default=0.01, help='The weight of egde loss of body mesh')
         loss.add_argument('--weight_vertex_normal', type=float, default=0.001, help='The weight of normal loss of vertices')
         loss.add_argument('--weight_triangle_normal', type=float, default=0.001, help='The weight of normal loss of triangles')
-        loss.add_argument('--weight_edges', type=float, default=0.01, help='The weight of egde loss of body mesh') 
+        loss.add_argument('--weight_rendering', type=float, default=0.001, help='The weight of rendering loss of body mesh') 
+        loss.add_argument('--weight_MS_DSSIM_verts', type=float, default=0.001, help='The weight of MS-DSSIM loss of rendered body mesh')
+        loss.add_argument('--weight_uvmap', type=float, default=1, help='The weight of pixel loss of UV maps') 
+        loss.add_argument('--weight_MS_DSSIM_uvmap', type=float, default=0.001, help='The weight of MS-DSSIM loss of UV maps')
         
         shuffle_train = train.add_mutually_exclusive_group()
         shuffle_train.add_argument('--shuffle_train', dest='shuffle_train', action='store_true', help='Shuffle training data')
         shuffle_train.add_argument('--no_shuffle_train', dest='shuffle_train', action='store_false', help='Don\'t shuffle training data')
-        shuffle_train.set_defaults(shuffle_train=False)
+        shuffle_train.set_defaults(shuffle_train=True)
         
         # for the training of GCN, lr = 1e-3 would be enough, higher lr would not be very helpful
         optim = self.parser.add_argument_group('Optimization')

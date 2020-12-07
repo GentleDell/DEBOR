@@ -3,7 +3,7 @@
 """
 Created on Thu Nov 19 22:12:46 2020
 
-@editor: zhantao
+@author: zhantao
 """
 from os.path import abspath, isfile, join as pjn
 import sys
@@ -11,11 +11,12 @@ if abspath('./') not in sys.path:
     sys.path.append(abspath('./'))
 if abspath('./third_party/smpl_webuser') not in sys.path:
     sys.path.append(abspath('./third_party/smpl_webuser'))
+if abspath('./third_party/pytorch-msssim') not in sys.path:
+    sys.path.append(abspath('./third_party/pytorch-msssim'))
 
 from tqdm import tqdm
 tqdm.monitor_interval = 0
 import torch
-import torch.nn as nn
 import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
@@ -23,12 +24,12 @@ import open3d as o3d
 from dataset import MGNDataset
 from utils import Mesh, BaseTrain, CheckpointDataLoader
 from utils.mesh_util import create_fullO3DMesh
-from models import GraphCNN, res50_plus_Dec, UNet, SMPL
-from models.loss import normal_loss, edge_loss
+from models import GraphCNN, res50_plus_Dec, UNet, SMPL, Loss
 from train_cfg import TrainOptions
 
 # ignore all alert from open3d except error messages
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
+
 
 class trainer(BaseTrain):
     
@@ -56,7 +57,6 @@ class trainer(BaseTrain):
         self.smplEdge = torch.Tensor(np.load(self.options.smpl_edges_path)) \
                         .long()  \
                         .to(self.device)     
-        
         # Create model
         if self.options.model == 'graphcnn':
             self.model = GraphCNN(
@@ -84,28 +84,18 @@ class trainer(BaseTrain):
             weight_decay=self.options.wd)
         
         # loss terms
-        self.criterion_shape = nn.L1Loss().to(self.device)
+        self.loss = Loss(self.options, self.faces, self.smplEdge, self.device)
         
         # Pack models and optimizers in a dict - necessary for checkpointing
         self.models_dict = {self.options.model: self.model}
         self.optimizers_dict = {'optimizer': self.optimizer}
-    
-    def shape_loss(self, pred_vertices, gt_vertices):
-        """
-        Compute per-vertex loss on the shape for the examples that SMPL 
-        annotations are available.
-        """
-        return self.criterion_shape(pred_vertices, gt_vertices)
-    
-    def uvMap_loss(self, pred_UVMap, gt_UVMap):
-        """Compute per-pixel loss on the uv texture map."""
-        return self.criterion_shape(pred_UVMap, gt_UVMap)
-        
+
+            
     def train_step(self, input_batch):
         """Training step."""
         self.model.train()
 
-        # Grab data from the batch
+        # Grab input from the batch
         images = input_batch['img']
 
         # Grab GT SMPL parameters and create body body for displacements
@@ -113,59 +103,40 @@ class trainer(BaseTrain):
                                   input_batch['smplGT']['betas'].to(torch.float), 
                                   input_batch['smplGT']['trans'].to(torch.float)
                                   )
-
-        # Feed image and pose in the GraphCNN
-        # Returns full mesh
+        # prepare pose of joints, not used yet
         pose = (None, input_batch['smplGT']['pose'])[self.options.append_pose]
         
-        # Compute losses
+        # training
+        pred_uvMap, pred_vertices_disp = None, None
         if self.options.model == 'unet':
             gt_uvMaps  = input_batch['UVmapGT']
             pred_uvMap = self.model(images, pose)
-            loss_uv = self.uvMap_loss(pred_uvMap, gt_uvMaps)
-            out_args = {'predict_unMap': pred_uvMap, 
-                        'loss_basic': loss_uv
-                        }
-            loss = self.options.weight_disps * out_args['loss_basic']
-            
+            loss = self.loss(predUVMaps = pred_uvMap, GTUVMaps = gt_uvMaps) 
         else:
             gt_vertices_disp = input_batch['meshGT']['displacement']
             pred_vertices_disp = self.model(images, pose)
-            loss_shape = self.shape_loss(pred_vertices_disp, gt_vertices_disp)
             
             dressbodyPred = pred_vertices_disp + body_vertices
             dressbodyGT = gt_vertices_disp + body_vertices
-            loss_verts_normal, loss_faces_normal = normal_loss(
-                     dressbodyPred, dressbodyGT, self.faces, self.device)
             
-            loss_edges  = edge_loss(dressbodyPred, dressbodyGT, self.smplEdge)
+            loss = self.loss(predVerts = dressbodyPred, GTVerts = dressbodyGT)
             
-            out_args = {'predict_vertices': pred_vertices_disp, 
-                        'loss_basic': loss_shape,
-                        'loss_verts_normal': loss_verts_normal,
-                        'loss_faces_normal': loss_faces_normal,
-                        'loss_egdes': loss_edges
-                        }
-            # Add losses to compute the total loss
-            loss = self.options.weight_disps * out_args['loss_basic'] +\
-                   self.options.weight_vertex_normal * out_args['loss_verts_normal'] +\
-                   self.options.weight_triangle_normal * out_args['loss_faces_normal'] +\
-                   self.options.weight_edges * out_args['loss_egdes']
-               
-        out_args['loss'] = loss
+        out_args = loss
+        out_args['predict_unMap'] = pred_uvMap
+        out_args['predict_vertices'] = pred_vertices_disp
         
         return out_args
+
 
     def test(self):
         """"Testing process"""
         self.model.eval()    
         
-        test_loss_basic, test_loss = 0, 0
+        test_loss_vertices, test_loss_uvmaps, test_loss = 0, 0, 0
         for step, batch in enumerate(tqdm(self.test_data_loader, desc='Test',
                                           total=len(self.test_ds) // self.options.batch_size,
                                           initial=self.test_data_loader.checkpoint_batch_idx),
                                      self.test_data_loader.checkpoint_batch_idx):
-            
             # convert data devices
             batch_toDEV = {}
             for key, val in batch.items():
@@ -184,19 +155,23 @@ class trainer(BaseTrain):
                 out = self.train_step(batch_toDEV)
                     
             test_loss += out['loss']
-            test_loss_basic += out['loss_basic']
+            test_loss_vertices += out['loss_vertices']
+            test_loss_uvmaps += out['loss_uvMap']
             
             # save for comparison
             if step == 0:
                 self.save_sample(batch_toDEV, out)
             
         test_loss = test_loss/len(self.test_data_loader)
-        test_loss_basic = test_loss_basic/len(self.test_data_loader)
+        test_loss_vertices = test_loss_vertices/len(self.test_data_loader)
+        test_loss_uvmaps = test_loss_uvmaps/len(self.test_data_loader)
         
         lossSummary = {'test_loss': test_loss, 
-                       'test_loss_basic' : test_loss_basic
+                       'test_loss_vertices' : test_loss_vertices,
+                       'test_loss_uvmaps': test_loss_uvmaps
                        }
         self.test_summaries(lossSummary)
+        
         
     def save_sample(self, data, prediction, ind = 0):
         """Saving a sample for visualization and comparison"""

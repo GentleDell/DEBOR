@@ -16,7 +16,7 @@ from torchvision.transforms import Normalize
 import numpy as np
 import cv2
 
-from utils.render_util import camera
+from utils.render_util import camera as cameraClass
 from utils.imutils import crop, flip_img
 
 
@@ -63,8 +63,8 @@ class BaseDataset(Dataset):
             self.bgimages = None
         
         # load datatest
-        self.imgname, self.center, self.scale = [], [], []
-        self.cameraInt, self.cameraExt, self.lights= [], [], []      
+        self. objname, self.imgname, self.center, self.scale = [], [], [], []
+        self.camera, self.lights= [], []      
         self.meshGT, self.smplGTParas, self.UVmapGT = [], [], []
         for obj in self.obj_dir:
             
@@ -87,22 +87,20 @@ class BaseDataset(Dataset):
                     self.center.append( [(boundbox[0]+boundbox[2])/2, (boundbox[1]+boundbox[3])/2] )
                     self.scale.append( max((boundbox[2]-boundbox[0])/200, (boundbox[3]-boundbox[1])/200) )
                 
+                # read and covert camera parameters
                 with open( pjn( path_to_rendering,'camera%d_intrinsic_smpl_registered.txt'%(cameraIdx)) ) as f:
-                    cameraIntrinsic = literal_eval(f.readline())
-                    self.cameraInt.append(cameraIntrinsic)
-                
+                    cameraIntrinsic = literal_eval(f.readline())     
                 with open( pjn( path_to_rendering,'camera%d_extrinsic_smpl_registered.txt'%(cameraIdx)) ) as f:
-                    cameraExtrinsic = literal_eval(f.readline())
-                    self.cameraExt.append(cameraExtrinsic)
-                    
-                # test camera class
-                # camthis = camera(projModel='perspective',
-                #                   intrinsics = np.array(cameraIntrinsic))
-                # camthis.setExtrinsic(rotation = np.array(cameraExtrinsic[0]), 
-                #                       location = np.array(cameraExtrinsic[0]))
-                # campara = camthis.getGeneralCamera()
-                # raise ValueError('verifiy the camera.')    
+                    cameraExtrinsic = literal_eval(f.readline())                    
+                camthis = cameraClass(
+                    projModel  ='perspective',
+                    intrinsics = np.array(cameraIntrinsic))
+                camthis.setExtrinsic(
+                    rotation = np.array(cameraExtrinsic[0]), 
+                    location = np.array(cameraExtrinsic[1]))
+                self.camera.append( camthis.getGeneralCamera() )
             
+                # light settings
                 with open( pjn( path_to_rendering,'light%d.txt'%(lightIdx)) ) as f:
                     lightSettings = literal_eval(f.readline())
                     self.lights.append(lightSettings)           
@@ -126,6 +124,8 @@ class BaseDataset(Dataset):
             UV_textureMap = cv2.imread( pjn(obj, 'registered_tex.jpg') )/255.0
             UV_textureMap = cv2.resize(UV_textureMap, (self.options.img_res, self.options.img_res), cv2.INTER_CUBIC)
             self.UVmapGT.append(UV_textureMap)
+            
+            self.objname.append(obj.split('/')[-1])
             
         # TODO: change the mean and std to our case
         IMG_NORM_MEAN = [0.485, 0.456, 0.406]
@@ -258,12 +258,14 @@ class BaseDataset(Dataset):
         
         # Store image before normalization to use it in visualization
         item['img_orig'] = img.clone()
-        item['img'] = self.normalize_img(img)    # normalize the input image 
+        item['img'] = self.normalize_img(img)
         item['imgname'] = imgname
-
+        item['objname'] = self.objname[ index//self.options.img_per_object ]
+ 
         item['scale'] = float(sc * scale)
         item['center'] = np.array(center).astype(np.float32)
         item['orig_shape'] = orig_shape
+        item['camera'] = self.camera[index]
         
         item['meshGT'] = self.meshGT[ index//self.options.img_per_object ]
         item['smplGT'] = self.smplGTParas[ index//self.options.img_per_object ]
