@@ -25,14 +25,14 @@ class TrainOptions(object):
         gen = self.parser.add_argument_group('General')
         gen.add_argument('--resume', dest='resume', default=False, action='store_true', help='Resume from checkpoint (Use latest checkpoint by default')
         gen.add_argument('--num_workers', type=int, default=8, help='Number of processes used for data loading')
-        gen.add_argument('--name', default='GCMR_moreloss', help='Name of the experiment')
+        gen.add_argument('--name', default='unet_MS_SSIM', help='Name of the experiment')
         pin = gen.add_mutually_exclusive_group()
         pin.add_argument('--pin_memory', dest='pin_memory', action='store_true', help='pin memory to speedup training')
         pin.add_argument('--no_pin_memory', dest='pin_memory', action='store_false', help='do not pin memory')
         gen.set_defaults(pin_memory=True)
        
         io = self.parser.add_argument_group('io')
-        io.add_argument('--log_dir', default='../logs', help='Directory to store logs')
+        io.add_argument('--log_dir', default='../logs/local', help='Directory to store logs')
         io.add_argument('--mgn_dir', default='../datasets/MGN_brighter', help='Directory to the dataset')
         io.add_argument('--bgimg_dir', default='../datasets/ADE20K_2016_07_26', help='Directory to backgound images')
         io.add_argument('--checkpoint', default=None, help='Path to save checkpoint')
@@ -43,7 +43,7 @@ class TrainOptions(object):
         io.set_defaults(save_sample=True)
 
         arch = self.parser.add_argument_group('Architecture')
-        arch.add_argument('--model', default='graphcnn', choices=['graphcnn', 'sizernn', 'unet'], help='The model to be trained') 
+        arch.add_argument('--model', default='unet', choices=['graphcnn', 'sizernn', 'unet'], help='The model to be trained') 
         arch.add_argument('--num_channels', type=int, default=256, help='Number of channels in Graph Residual layers') 
         arch.add_argument('--num_layers', type=int, default=5, help='Number of residuals blocks in the Graph CNN') 
         arch.add_argument('--latent_size', type=int, default=200, help='size of latent vector in sizernet') 
@@ -65,7 +65,7 @@ class TrainOptions(object):
         train.add_argument('--scale_factor', type=float, default=0.25, help='rescale bounding boxes by a factor of [1-options.scale_factor,1+options.scale_factor]') 
         train.add_argument('--augmentation', dest='use_augmentation', default=True, action='store_false', help='Do augmentation') 
         train.add_argument('--augmentation_rgb', dest='use_augmentation_rgb', default=True, action='store_false', help='Do color jittering during training') 
-        train.add_argument('--replace_background', dest='replace_background', default=True, action='store_false', help='Replace background of the rendered images.') 
+        train.add_argument('--replace_background', dest='replace_background', default=False, action='store_false', help='Replace background of the rendered images.') 
         
         # for the training of GCN, since the edge loss would reduce to 1e-3 level,
         # other loss should be smaller than this order. Greater weight_disps would

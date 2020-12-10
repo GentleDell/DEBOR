@@ -109,7 +109,7 @@ class trainer(BaseTrain):
         # training
         pred_uvMap, pred_vertices_disp = None, None
         if self.options.model == 'unet':
-            gt_uvMaps  = input_batch['UVmapGT']
+            gt_uvMaps  = input_batch['UVmapGT'].to(torch.float)
             pred_uvMap = self.model(images, pose)
             loss = self.loss(predUVMaps = pred_uvMap, GTUVMaps = gt_uvMaps) 
         else:

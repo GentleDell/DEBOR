@@ -178,12 +178,22 @@ class lossfunc(nn.Module):
             https://github.com/VainF/pytorch-msssim/
         
         '''
+        
+        # denormalize the image to 0-1
+        raise_predic_image  = pred_image - pred_image.min()
+        denorm_predic_image = raise_predic_image/raise_predic_image.max()
+        
         # the formula used in tex2shape
         if on == 'vertices':
-            loss_ms_dssim = (1 - self.MS_SSIMvt_cls(pred_image, target_image)) / 2 
+            loss_ms_dssim = 1 - self.MS_SSIMvt_cls(
+                denorm_predic_image.permute(0,3,1,2), 
+                target_image.permute(0,3,1,2))
+            
         elif on == 'uvMaps':
-            loss_ms_dssim = (1 - self.MS_SSIMuv_cls(pred_image, target_image)) / 2 
-         
+            loss_ms_dssim = 1 - self.MS_SSIMuv_cls(
+                denorm_predic_image.permute(0,3,1,2), 
+                target_image.permute(0,3,1,2))
+            
         return loss_ms_dssim
     
     def rendering_loss(self):

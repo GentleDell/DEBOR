@@ -121,7 +121,7 @@ class BaseDataset(Dataset):
                                      'trans': registration['trans']})
             
             # read and resize UV texture map
-            UV_textureMap = cv2.imread( pjn(obj, 'registered_tex.jpg') )/255.0
+            UV_textureMap = cv2.imread( pjn(obj, 'registered_tex.jpg') )[:,:,::-1]/255.0
             UV_textureMap = cv2.resize(UV_textureMap, (self.options.img_res, self.options.img_res), cv2.INTER_CUBIC)
             self.UVmapGT.append(UV_textureMap)
             

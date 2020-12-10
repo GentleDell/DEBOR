@@ -136,6 +136,10 @@ def inference(pathCkp: str, pathImg: str):
     scale  =  max((boundbox[2]-boundbox[0])/200, (boundbox[3]-boundbox[1])/200)
     img  = crop(img, center, scale, [224, 224], rot=0)
     
+    # prepare background
+    if options.replace_background:
+        raise NotImplementedError('inference to be completed.')
+    
     # img  = torch.Tensor(img).permute(2,0,1)/255
     img  = normalize_img( torch.Tensor(img).permute(2,0,1)/255 )
     
@@ -150,8 +154,8 @@ def inference(pathCkp: str, pathImg: str):
 if __name__ == '__main__':
     
     path_to_SMPL  = '../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl' 
-    path_to_chkpt = '../logs/MGN_GCMR_lr3e-3'
-    path_to_object= '/home/zhantao/Documents/masterProject/DEBOR/datasets/Multi-Garment_dataset/125611487366942/'
+    path_to_chkpt = '../logs/unet_brighter_background'
+    path_to_object= '/home/zhantao/Documents/masterProject/DEBOR/datasets/MGN_brighter/125611487366942/'
     path_to_image = pjn(path_to_object, 'rendering/camera0_light0_smpl_registered.png')
                     
     prediction = inference(path_to_chkpt, path_to_image)
