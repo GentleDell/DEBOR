@@ -238,6 +238,3 @@ if __name__ == '__main__':
     mgn_trainer = trainer(cfgs.args)
     mgn_trainer.train()
     
-    # path_to_object = '/home/zhantao/Documents/masterProject/DEBOR/datasets/Multi-Garment_dataset/125611487366942'
-    # mgn_trainer.inference(path_to_object, cfgs.args)
-    
