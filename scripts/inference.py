@@ -6,6 +6,7 @@ Created on Sun Nov 29 11:05:05 2020
 @author: zhantao
 """
 import pickle
+from glob import glob
 from ast import literal_eval
 from os.path import join as pjn, isfile, abspath
 from collections import namedtuple
@@ -23,7 +24,7 @@ import open3d as o3d
 import matplotlib.pyplot as plt
 from torchvision.transforms import Normalize
 
-from utils.imutils import crop
+from utils.imutils import crop, background_replacing
 from utils import Mesh, CheckpointSaver
 from utils.mesh_util import generateSMPLmesh, create_fullO3DMesh
 from models import GraphCNN, res50_plus_Dec, UNet
@@ -72,15 +73,15 @@ def visPrediction(path_object: str, path_SMPLmodel: str, displacement: array,
                                      vertexcolor=vertexcolors/vertexcolors.max(), 
                                      use_vertex_color=True)
         
-        growVertices += np.array([0.6,0,0])
-        segBody = create_fullO3DMesh(growVertices, smplMesh, 
-                                     vertexcolor=segmentation/segmentation.max(), 
+        SMPLvert_posed += np.array([0.6,0,0])
+        segBody = create_fullO3DMesh(SMPLvert_posed, smplMesh, 
+                                     vertexcolor=vertexcolors/vertexcolors.max(), 
                                      use_vertex_color=True)    
 
         o3d.visualization.draw_geometries([clrBody, segBody])
 
 
-def inference(pathCkp: str, pathImg: str):
+def inference(pathCkp: str, pathImg: str = None, pathBgImg: str = None):
 
     # Load configuration
     with open( pjn(pathCkp, 'config.json') , 'r' ) as f:
@@ -121,7 +122,6 @@ def inference(pathCkp: str, pathImg: str):
     cameraIdx = int(pathImg.split('/')[-1].split('_')[0][6:])
     with open( pjn( pathToObj,'rendering/camera%d_boundingbox.txt'%(cameraIdx)) ) as f:
         boundbox = literal_eval(f.readline())
-                           
     IMG_NORM_MEAN = [0.485, 0.456, 0.406]
     IMG_NORM_STD = [0.229, 0.224, 0.225]
     normalize_img = Normalize(mean=IMG_NORM_MEAN, std=IMG_NORM_STD)  
@@ -132,37 +132,53 @@ def inference(pathCkp: str, pathImg: str):
     with open( pjn( path_to_rendering,'camera%d_boundingbox.txt'%(cameraIdx)) ) as f:
         boundbox = literal_eval(f.readline())
     img  = cv2.imread(pathImg)[:,:,::-1].astype(np.float32)
+    
+    # prepare background
+    if options.replace_background:
+        if pathBgImg is None:
+            bgimages = []
+            for subfolder in sorted(glob( pjn(options.bgimg_dir, 'images/validation/*') )):
+                for subsubfolder in sorted( glob( pjn(subfolder, '*') ) ):
+                    if 'room' in subsubfolder:
+                        bgimages += sorted(glob( pjn(subsubfolder, '*.jpg')) )
+            bgimg =  cv2.imread(bgimages[np.random.randint(0, len(bgimages))])[:,:,::-1].astype(np.float32)
+        else:
+            bgimg = cv2.imread(pathBgImg)[:,:,::-1].astype(np.float32)
+        img = background_replacing(img, bgimg)
+    
+    # augment image
     center =  [(boundbox[0]+boundbox[2])/2, (boundbox[1]+boundbox[3])/2] 
     scale  =  max((boundbox[2]-boundbox[0])/200, (boundbox[3]-boundbox[1])/200)
     img  = crop(img, center, scale, [224, 224], rot=0)
     
-    # prepare background
-    if options.replace_background:
-        raise NotImplementedError('inference to be completed.')
-    
     # img  = torch.Tensor(img).permute(2,0,1)/255
-    img  = normalize_img( torch.Tensor(img).permute(2,0,1)/255 )
+    img_in = normalize_img( torch.Tensor(img).permute(2,0,1)/255 )
     
     # Inference
     model.eval()    
     pose = None
-    prediction = model(img[None,:,:,:].to(device), pose)
+    prediction = model(img_in[None,:,:,:].to(device), pose)
 
-    return prediction
+    return prediction, img_in
     
 
 if __name__ == '__main__':
     
     path_to_SMPL  = '../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl' 
-    path_to_chkpt = '../logs/unet_brighter_background'
-    path_to_object= '/home/zhantao/Documents/masterProject/DEBOR/datasets/MGN_brighter/125611487366942/'
+    path_to_chkpt = '../logs/GCMR_single_brighter_green'
+    path_to_object= '/home/zhantao/Documents/masterProject/DEBOR/datasets/MGN_brighter/125611515860795/'
     path_to_image = pjn(path_to_object, 'rendering/camera0_light0_smpl_registered.png')
                     
-    prediction = inference(path_to_chkpt, path_to_image)
+    prediction, img_in = inference(path_to_chkpt, path_to_image)
     prediction = prediction[0].detach().cpu()
     
     if prediction.shape[1] == 3:
         visPrediction(path_to_object, path_to_SMPL, prediction, False)
+        plt.imshow(img_in.permute(1,2,0))
     else:
         plt.imshow(prediction)
         plt.show()
+        
+        plt.imshow(img_in.permute(1,2,0))
+        plt.show()
+        
