@@ -34,7 +34,7 @@ class TrainOptions(object):
         io = self.parser.add_argument_group('io')
         io.add_argument('--log_dir', default='../logs/local', help='Directory to store logs')
         io.add_argument('--mgn_dir', default='../datasets/MGN_brighter', help='Directory to the dataset')
-        io.add_argument('--bgimg_dir', default='../datasets/ADE20K_2016_07_26', help='Directory to backgound images')
+        io.add_argument('--bgimg_dir', default='../datasets/ADE20K', help='Directory to backgound images')
         io.add_argument('--checkpoint', default=None, help='Path to save checkpoint')
         io.add_argument('--pretrained_checkpoint', default=None, help='Load a pretrained Graph CNN when starting training') 
         ss = io.add_mutually_exclusive_group()
@@ -43,7 +43,7 @@ class TrainOptions(object):
         io.set_defaults(save_sample=True)
 
         arch = self.parser.add_argument_group('Architecture')
-        arch.add_argument('--model', default='unet', choices=['graphcnn', 'sizernn', 'unet'], help='The model to be trained') 
+        arch.add_argument('--model', default='graphcnn', choices=['graphcnn', 'sizernn', 'unet'], help='The model to be trained') 
         arch.add_argument('--num_channels', type=int, default=256, help='Number of channels in Graph Residual layers') 
         arch.add_argument('--num_layers', type=int, default=5, help='Number of residuals blocks in the Graph CNN') 
         arch.add_argument('--latent_size', type=int, default=200, help='size of latent vector in sizernet') 
@@ -56,16 +56,16 @@ class TrainOptions(object):
         train = self.parser.add_argument_group('Training Options')
         train.add_argument('--num_epochs', type=int, default=100, help='Total number of training epochs')
         train.add_argument('--batch_size', type=int, default=2, help='Batch size')
-        train.add_argument('--summary_steps', type=int, default=2, help='Summary saving frequency')
-        train.add_argument('--checkpoint_steps', type=int, default=4, help='Checkpoint saving frequency')
-        train.add_argument('--test_steps', type=int, default=4, help='Testing frequency')
+        train.add_argument('--summary_steps', type=int, default=100, help='Summary saving frequency')
+        train.add_argument('--checkpoint_steps', type=int, default=500, help='Checkpoint saving frequency')
+        train.add_argument('--test_steps', type=int, default=500, help='Testing frequency')
         train.add_argument('--num_downsampling', type=int, default=0, help='number of times downsampling the smpl mesh') 
         train.add_argument('--rot_factor', type=float, default=30, help='Random rotation in the range [-rot_factor, rot_factor]') 
         train.add_argument('--noise_factor', type=float, default=0.4, help='Random rotation in the range [-rot_factor, rot_factor]') 
         train.add_argument('--scale_factor', type=float, default=0.25, help='rescale bounding boxes by a factor of [1-options.scale_factor,1+options.scale_factor]') 
         train.add_argument('--augmentation', dest='use_augmentation', default=True, action='store_false', help='Do augmentation') 
         train.add_argument('--augmentation_rgb', dest='use_augmentation_rgb', default=True, action='store_false', help='Do color jittering during training') 
-        train.add_argument('--replace_background', dest='replace_background', default=False, action='store_false', help='Replace background of the rendered images.') 
+        train.add_argument('--replace_background', dest='replace_background', default=True, action='store_false', help='Replace background of the rendered images.') 
         
         # for the training of GCN, since the edge loss would reduce to 1e-3 level,
         # other loss should be smaller than this order. Greater weight_disps would
