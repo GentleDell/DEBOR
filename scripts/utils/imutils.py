@@ -158,3 +158,32 @@ def flip_aa(aa):
     aa[1] = -aa[1]
     aa[2] = -aa[2]
     return aa
+
+def background_replacing(image, bg_image):
+    '''Replace the green background by a part of the gievn bg_image.'''
+    
+    # the size of background is at leaset a quater of the original 
+    # background image
+    scale = np.random.uniform(1, 2)
+    
+    # width-hight ratio of the body image
+    ratio = image.shape[1]/image.shape[0]
+    
+    size  = [int(bg_image.shape[0]/scale), int(bg_image.shape[1]/scale)]
+    size  = ([size[0], int(size[0]*ratio)], 
+             [int(size[1]/ratio), size[1]])\
+            [size[0]*ratio > size[1]]
+    # random top left conner
+    tlcnr = [np.random.randint(0, bg_image.shape[0] - size[0]), 
+             np.random.randint(0, bg_image.shape[1] - size[1])]
+    
+    # resize background image and replace
+    background = cv2.resize(bg_image[tlcnr[0] : tlcnr[0]+size[0], 
+                                     tlcnr[1] : tlcnr[1]+size[1]],
+                            (image.shape[1], image.shape[0]), 
+                            cv2.INTER_CUBIC) 
+    # green mask
+    masks = image[:,:,1].astype(int) == 255
+    image[masks] = background[masks]
+    
+    return image
