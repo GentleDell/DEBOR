@@ -55,7 +55,8 @@ class Bottleneck(nn.Module):
 
 class ResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000):
+    def __init__(self, block, layers, num_classes=1000, 
+                 outAvgPool=True, outdownLayers=False):
         self.inplanes = 64
         super(ResNet, self).__init__()
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
@@ -68,7 +69,13 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7, stride=1)
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
+                
+        # keep fc here to load pretrained model
+        self.fc = nn.Linear(512 * block.expansion, num_classes)    
+        
+        # control the output contents
+        self.outAvgPool = outAvgPool
+        self.outLayers  = outdownLayers
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -95,21 +102,26 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
-        x = self.conv1(x)
+        
+        out = []
+        x = self.conv1(x)     # 112x112
         x = self.bn1(x)
         x = self.relu(x)
         x = self.maxpool(x)
 
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-
-        x = self.avgpool(x)
-        x = x.view(x.size(0), -1)
-        # remove final fully connected layer
-        # x = self.fc(x)
-
+        x = self.layer1(x)    # 56x56
+        x = self.layer2(x)    # 28x28
+        out.append(x)
+        x = self.layer3(x)    # 14x14
+        out.append(x)
+        x = self.layer4(x)    # 7x7
+        
+        if self.outAvgPool:
+            x = self.avgpool(x)
+            x = x.view(x.size(0), -1)
+            
+        if self.outLayers:    # output intermediate layers 
+            return x, out 
         return x
 
 def resnet50(pretrained=False, **kwargs):
