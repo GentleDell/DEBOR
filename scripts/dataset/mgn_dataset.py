@@ -17,7 +17,7 @@ import numpy as np
 import cv2
 
 from utils.render_util import camera as cameraClass
-from utils.imutils import crop, flip_img
+from utils.imutils import crop, flip_img, background_replacing
 
 
 class BaseDataset(Dataset):
@@ -51,14 +51,14 @@ class BaseDataset(Dataset):
         #
         #    training images and testing/validation image have backgrounds 
         #    from differernt folder.
-        enable_replacebg = options.replace_background and isdir(options.bgimg_dir) 
-        if enable_replacebg:
+        if options.replace_background:
             self.bgimages = []
             imgsrc = ('images/validation/*', 'images/training/*')[split == 'train']
             for subfolder in sorted(glob(pjn(options.bgimg_dir, imgsrc))):
                 for subsubfolder in sorted( glob( pjn(subfolder, '*') ) ):
                     if 'room' in subsubfolder:
                         self.bgimages += sorted(glob( pjn(subsubfolder, '*.jpg'))) 
+            assert len(self.bgimages) > 0, 'No background image found.'
         else:
             self.bgimages = None
         
@@ -140,12 +140,12 @@ class BaseDataset(Dataset):
         self.length = len(self.imgname)
         
         # define the correspondence between image and background in advance
-        if enable_replacebg:
+        if options.replace_background:
             self.bgperm = np.random.randint(0, len(self.bgimages), size = self.length)
 
         # img = cv2.imread(self.imgname[251])[:,:,::-1].copy().astype(np.float32)
         # bgimg = cv2.imread(self.bgimages[251])[:,:,::-1].copy().astype(np.float32)
-        # img = self.background_replacing(img, bgimg)
+        # img = background_replacing(img, bgimg)
         # plt.imshow(img/255)
 
     def augm_params(self):
@@ -194,38 +194,10 @@ class BaseDataset(Dataset):
             rgb_img[:,:,0] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,0]*pn[0]))
             rgb_img[:,:,1] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,1]*pn[1]))
             rgb_img[:,:,2] = np.minimum(255.0, np.maximum(0.0, rgb_img[:,:,2]*pn[2]))
+            
         # (3,224,224),float,[0,1]
         rgb_img = np.transpose(rgb_img.astype('float32'),(2,0,1))/255.0
         return rgb_img
-    
-    def background_replacing(self, image, bg_image):
-        '''Replace the green background by a part of the gievn bg_image.'''
-        
-        # the size of background is at leaset a quater of the original 
-        # background image
-        scale = np.random.uniform(1, 2)
-        
-        # width-hight ratio of the body image
-        ratio = image.shape[1]/image.shape[0]
-        
-        size  = [int(bg_image.shape[0]/scale), int(bg_image.shape[1]/scale)]
-        size  = ([size[0], int(size[0]*ratio)], 
-                 [int(size[1]/ratio), size[1]])\
-                [size[0]*ratio > size[1]]
-        # random top left conner
-        tlcnr = [np.random.randint(0, bg_image.shape[0] - size[0]), 
-                 np.random.randint(0, bg_image.shape[1] - size[1])]
-        
-        # resize background image and replace
-        background = cv2.resize(bg_image[tlcnr[0] : tlcnr[0]+size[0], 
-                                         tlcnr[1] : tlcnr[1]+size[1]],
-                                (image.shape[1], image.shape[0]), 
-                                cv2.INTER_CUBIC) 
-        # green mask
-        masks = image[:,:,1].astype(int) == 255
-        image[masks] = background[masks]
-        
-        return image
 
     def __getitem__(self, index):
         item = {}
@@ -250,7 +222,7 @@ class BaseDataset(Dataset):
                 bgimg = cv2.imread(bgimgname)[:,:,::-1].copy().astype(np.float32)
             except TypeError:
                 print(bgimgname)
-            img = self.background_replacing(img, bgimg)
+            img = background_replacing(img, bgimg)
 
         # Process image
         img = self.rgb_processing(img, center, sc*scale, rot, flip, pn)
