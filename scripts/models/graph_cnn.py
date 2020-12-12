@@ -27,11 +27,6 @@ class GraphCNN(nn.Module):
                                    nn.ReLU(inplace=True),
                                    GraphLinear(32, 3))
         self.gc = nn.Sequential(*layers)
-        # self.camera_fc = nn.Sequential(nn.GroupNorm(num_channels // 8, num_channels),
-        #                               nn.ReLU(inplace=True),
-        #                               GraphLinear(num_channels, 1),
-        #                               nn.ReLU(inplace=True),
-        #                               nn.Linear(A.shape[0], 3))
 
     def forward(self, image, pose = None):
         """Forward pass
