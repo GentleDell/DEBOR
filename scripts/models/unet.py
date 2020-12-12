@@ -75,11 +75,14 @@ class unet_core(nn.Module):
     '''
     Pytorch reimplementation of the UNet used in tex2shape with some changes.
     '''
-    def __init__(self, dropRate: float = 0, batchNormalization: bool = True):
+    def __init__(self, dropRate: float = 0, batchNormalization: bool = True, 
+                 conditionCodes: int = 0):
         super(unet_core, self).__init__()
 
         base_depth = 64
         kernelSize = 4
+        
+        self.conditionDepth = conditionCodes
         
         # structure for downsampling 
         self.d1 = downsampleLayer(3, base_depth, kernelSize)
@@ -90,14 +93,15 @@ class unet_core(nn.Module):
         self.d6 = downsampleLayer(base_depth*8, base_depth*8, kernelSize, bn=True)        
         
         # structure for upsampling
-        self.u1 = upsampleLayer(base_depth*8 , base_depth*8, kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
+        self.u1 = upsampleLayer(base_depth*8+self.conditionDept, base_depth*8,    # add condition codes if required
+                                kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
         self.u2 = upsampleLayer(base_depth*16, base_depth*8, kernelSize-1, paddings=0, dropout_rate=dropRate, bn=batchNormalization) 
         self.u3 = upsampleLayer(base_depth*16, base_depth*4, kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
         self.u4 = upsampleLayer(base_depth*4, base_depth*2, kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
         self.u5 = upsampleLayer(base_depth*2, base_depth  , kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
         self.u6 = nn.Upsample(scale_factor=2, mode='nearest')
         
-    def forward(self, d0):
+    def forward(self, d0, conditionCodes = None):
         
         d1 = self.d1(d0)    # 112x112x64
         d2 = self.d2(d1)    # 56x56x128
@@ -105,6 +109,10 @@ class unet_core(nn.Module):
         d4 = self.d4(d3)    # 14x14x512
         d5 = self.d5(d4)    # 8x8x512
         d6 = self.d6(d5)    # 4x4x512
+        
+        # add condition codes if given and required
+        if self.conditionDepth == conditionCodes:
+            d6 = d6 + conditionCodes
         
         # only keep the 2 low-level connections
         u1 = self.u1(d6, d5)    # 8x8x1024
@@ -116,8 +124,7 @@ class unet_core(nn.Module):
         u6 = self.u6(u5)        # 224x224x64
         
         return u6
-        
-    
+          
 class UNet(nn.Module):
     '''
     Pytorch reimplementation with our modifications of the original UNet used 
