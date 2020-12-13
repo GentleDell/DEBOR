@@ -10,8 +10,8 @@ from __future__ import division
 import torch 
 import torch.nn as nn
 
-from .graph_layers import GraphResBlock, GraphLinear
-from .unet import upsampleLayer
+from graph_layers import GraphResBlock, GraphLinear
+from unet import upsampleLayer
 
 class dispNet(nn.Module):
     
@@ -52,30 +52,63 @@ class dispNet(nn.Module):
         ref_vertices = self.ref_vertices[None, :, :].expand(batch_size, -1, -1)
                 
         image_enc = self.inconv(x)
+        image_enc = image_enc.flatten(start_dim=-2).expand(-1, -1, ref_vertices.shape[-1])
+        
         x = torch.cat([ref_vertices, image_enc], dim=1)
         x = self.gc(x)
         shape = self.shape(x).permute(0,2,1)
 
         return shape
     
-class textureNet(nn.Module):
-    def __init__(self):
-        super(textureNet, self).__init__()
+class textupNet(nn.Module):
+    def __init__(self, dropRate: float = 0, batchNormalization: bool = True,
+                 infeature = 2048, inShape = 7, outdim = 3, outkernelSize = 3,
+                 conditionOn = False):
+        super(textupNet, self).__init__()
+        
+        base_depth = 64
+        kernelSize = 4
+        
+        if conditionOn:
+            raise NotImplementedError('conditiona layers to be implemented')
+        
+        self.u1 = upsampleLayer(infeature, base_depth*16, kernelSize-1,                      
+                                dropout_rate=dropRate, bn=batchNormalization)
+        self.u2 = upsampleLayer(base_depth*16 + int(infeature/2), base_depth*8, kernelSize-1,     
+                                dropout_rate=dropRate, bn=batchNormalization) 
+        self.u3 = upsampleLayer(base_depth*8 + int(infeature/4), base_depth*4, kernelSize-1,      
+                                dropout_rate=dropRate, bn=batchNormalization)
+        self.u4 = upsampleLayer(base_depth*4, base_depth*2, kernelSize-1,
+                                dropout_rate=dropRate, bn=batchNormalization)
+        self.u5 = upsampleLayer(base_depth*2, base_depth  , kernelSize-1,                    
+                                dropout_rate=dropRate, bn=batchNormalization)
+        
+        self.outLayer = nn.Conv2d(base_depth, outdim, outkernelSize, padding=1)
         
     def forward(self, x, layers: list):
         
-        return x
+        assert len(layers) == 2, 'only keep the lowest 2 layers'
+        
+        u1 = self.u1(x , layers[1])     # 14x14x2048
+        u2 = self.u2(u1, layers[0])     # 28x28x1024
+        u3 = self.u3(u2)                # 56x56x256
+        u4 = self.u4(u3)                # 112x112x128
+        u5 = self.u5(u4)                # 224x224x64
+            
+        out = self.outLayer(u5)         # 224x224xoutdim
+        
+        return out
 
 class poseNet(nn.Module):
     '''
-    Bring ideas and codes from TexturePose[1], pytorch_HMR[2] and expose[3].
+    Code adapted from from TexturePose[1], pytorch_HMR[2] and expose[3].
     
     [1] https://github.com/geopavlakos/TexturePose
     [2] https://github.com/MandyMo/pytorch_HMR/
     [3] https://github.com/vchoutas/expose
 
     '''    
-    def __init__(self, infeature, inShape, npose, numiters):
+    def __init__(self, infeature, inShape, npose=144, numiters=3):
         super(poseNet, self).__init__()
         
         self.numiters = numiters
@@ -90,6 +123,8 @@ class poseNet(nn.Module):
         
         self.decpose = nn.Linear(1024, npose)
         self.decshape = nn.Linear(1024, 10)
+        nn.init.xavier_uniform_(self.decpose.weight, gain=0.01)
+        nn.init.xavier_uniform_(self.decshape.weight, gain=0.01)
         
     def forward(self, x, init_pose, init_shape):
         '''
@@ -112,12 +147,12 @@ class poseNet(nn.Module):
         '''
         out = []
         
-        xf = self.inconv(x)
-        xf = xf.view(xf.size(0), -1)
+        xin = self.inconv(x)
+        xin = xin.view(xin.size(0), -1)
         
         for cnt in range(self.numiters):
             
-            xf = torch.cat([xf,init_pose,init_shape],1)
+            xf = torch.cat([xin,init_pose,init_shape],1)
             xf = self.fc1(xf)
             xf = self.relu1(xf)
             xf = self.drop1(xf)        
@@ -134,8 +169,15 @@ class poseNet(nn.Module):
         return out
     
 class cameraNet(nn.Module):
+    '''
+    Code adapted from from TexturePose[1], pytorch_HMR[2] and expose[3].
     
-    def __init__(self, infeature, inShape, numiters):
+    [1] https://github.com/geopavlakos/TexturePose
+    [2] https://github.com/MandyMo/pytorch_HMR/
+    [3] https://github.com/vchoutas/expose
+
+    '''    
+    def __init__(self, infeature, inShape, numiters=3):
         super(cameraNet, self).__init__()
         
         self.numiters = numiters
@@ -149,16 +191,17 @@ class cameraNet(nn.Module):
         self.drop2 = nn.Dropout()
         
         self.deccam = nn.Linear(1024, 3)
+        nn.init.xavier_uniform_(self.deccam.weight, gain=0.01)
         
     def forward(self, x, init_cam):
         out = []
     
-        xf = self.inconv(x)
-        xf = xf.view(xf.size(0), -1)
+        xin = self.inconv(x)
+        xin = xin.view(xin.size(0), -1)
         
         for cnt in range(self.numiters):
             
-            xf = torch.cat([xf,init_cam],1)
+            xf = torch.cat([xin,init_cam],1)
             xf = self.fc1(xf)
             xf = self.relu1(xf)
             xf = self.drop1(xf)        

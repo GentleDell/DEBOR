@@ -44,6 +44,8 @@ class lossfunc(nn.Module):
         
         self.device = device
         
+        self.use_camLoss    = options.enable_camLoss            # cam params
+        self.use_smplLoss   = options.enable_smplLoss           # body paras
         self.use_vertLoss   = options.enable_vertLoss           # vertices
         self.use_edgeLoss   = options.enable_edgeLoss
         self.use_normalLoss = options.enable_normalLoss
@@ -52,6 +54,8 @@ class lossfunc(nn.Module):
         self.use_uvmapLoss  = options.enable_uvmapLoss          # UV Maps
         self.use_MS_DSSIMuv = options.enable_MS_DSSIM_Loss_uv
         
+        self.weight_camLoss    = options.weight_camera          # cam params
+        self.weight_smplLoss   = options.weight_smpl            # body paras
         self.weight_vertLoss   = options.weight_disps           # vertices
         self.weight_edgeLoss   = options.weight_edges
         self.weight_normalLossvt = options.weight_vertex_normal
@@ -61,13 +65,22 @@ class lossfunc(nn.Module):
         self.weight_uvmapLoss  = options.weight_uvmap           # UV Maps  
         self.weight_MS_DSSIMuv = options.weight_MS_DSSIM_uvmap
         
+        # L1 loss for camera parameters
+        if self.use_camLoss:
+            self.camLoss = nn.L1Loss().to(self.device)
+        
+        # L1 loss for beta and theta
+        if self.use_smplLoss:
+            self.smplLoss = nn.L1Loss().to(self.device)
+        
         # use L1 loss for vertices loss
         if self.use_vertLoss:
-            self.vertLoss= nn.L1Loss().to(self.device)
+            self.vertLoss = nn.L1Loss().to(self.device)
         
         # use L1 as uvMap loss
+        # TODO: BETTER FOCUSING ON SPECITIC PIXELS
         if self.use_uvmapLoss:
-            self.uvMapLoss= nn.L1Loss().to(self.device)
+            self.uvMapLoss = nn.L1Loss().to(self.device)
                 
         # Multiple scale similarity calculator for vertices after rendering
         if self.use_MS_DSSIMvt and self.use_renderLoss:
@@ -202,10 +215,14 @@ class lossfunc(nn.Module):
 
 
     def forward(self, predVerts = None, GTVerts = None, 
-                      predUVMaps = None, GTUVMaps = None):
+                      predUVMaps = None, GTUVMaps = None,
+                      predSMPL = None, GTSMPL = None,
+                      predcamera = None, GTcamera = None):
         
         # predefine losses
-        outloss = {'loss_vertices': torch.Tensor([0]),
+        outloss = {'loss_camParams': torch.Tensor([0]),
+                   'loss_smplParas': torch.Tensor([0]),
+                   'loss_vertices': torch.Tensor([0]),
                    'loss_egdes': torch.Tensor([0]),
                    'loss_verts_normal': torch.Tensor([0]),
                    'loss_faces_normal': torch.Tensor([0]),
@@ -217,6 +234,15 @@ class lossfunc(nn.Module):
         for key, val in outloss.items():
             outloss[key] = val.to(self.device)
         
+        
+        if predcamera is not None and GTcamera is not None:
+            if self.use_camLoss:
+                outloss['loss_camParams'] = self.camLoss(predcamera, GTcamera)
+        
+        if predSMPL is not None and GTSMPL is not None:
+            if self.use_smplLoss:
+                outloss['loss_smplParas'] = self.smplLoss(predSMPL, GTSMPL)
+            
         # loss for displacements
         if predVerts is not None and GTVerts is not None:
             if self.use_vertLoss:
@@ -243,6 +269,8 @@ class lossfunc(nn.Module):
                 outloss['loss_MS_DSSIMuv'] = self.MS_DSSIM(predUVMaps, GTUVMaps, 'uvMaps')
                             
         outloss['loss'] = \
+            self.weight_camLoss  * outloss['loss_camParams'] +\
+            self.weight_smplLoss * outloss['loss_smplParas'] +\
             self.weight_vertLoss * outloss['loss_vertices'] + \
             self.weight_edgeLoss * outloss['loss_egdes'] +\
             self.weight_normalLossvt * outloss['loss_verts_normal'] +\
