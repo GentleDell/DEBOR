@@ -15,78 +15,130 @@ from collections import namedtuple
 import torch
 import torch.nn as nn
 
-from resnet import resnet50
-from utils import Mesh
-from subtasks_nn import cameraNet, poseNet, textupNet, dispNet
-
-structure_options = {'cut_feature': False,    # cut feature for diff tasks
-                     'condition_dispOnPose' : True,
-                     'condition_clrOnCam' : True,
-                     'backwardNetOn': False,
-                     'graph_matrics_path' : '/home/zhantao/Documents/masterProject/DEBOR/body_model/mesh_downsampling.npz',
-                     'smpl_model_path' : '/home/zhantao/Documents/masterProject/DEBOR/body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl'
-                     }
+from structures_options import structure_options
+from subtasks_nn import simpleMLP, cameraNet
+from subtasks_nn import poseNet, upNet, downNet, dispGraphNet
 
 
-class multiple_downstream(nn.Module):
+class DEBORNet(nn.Module):
     
-    def __init__(self, structure_options, A, ref_vertices, device = 'cuda'):
-        super(multiple_downstream, self).__init__()
+    def __init__(self, structure_options, A = None, ref_vertices = None, 
+                 device = 'cuda'):
+        super(DEBORNet, self).__init__()
         
         self.options = structure_options
         self.infeature = 2048
-        if self.options.cut_feature:
-            self.infeature = self.infeature/4
         
-        # common feature extractor, output {Bx2048x7x7}
-        self.resnet50 = resnet50(pretrained = True,
-                                 outAvgPool = False,
-                                 outdownLayers = True).to(device)
+        # --------- SMPL model encoder and decoder ---------
+        if options.structureList.SMPL.enable:
+            self.SMPLenc = simpleMLP(
+                self.options.structureList.SMPL.infeature, 
+                self.options.structureList.SMPL.latent_shape,
+                self.options.structureList.SMPL.shape)
+            if options.structureList.SMPL.network == 'simple':
+                self.SMPLdec = simpleMLP(
+                    self.options.structureList.SMPL.latent_shape,
+                    self.options.structureList.SMPL.infeature,
+                    self.options.structureList.SMPL.shape[::-1])
+            elif options.structureList.SMPL.network == 'poseNet':
+                self.SMPLdec = poseNet( 
+                    self.options.structureList.SMPL.latent_shape, 
+                    inShape = self.options.inShape,
+                    numiters= 3)    # maybe 1 would be better 
+            else:
+                raise ValueError(options.structureList.SMPL.network)
+            
+        # --------- displacements encoder and decoder ---------
+        if options.structureList.disps.enable:
+            self.dispenc = simpleMLP(
+                self.options.structureList.disp.infeature, 
+                self.options.structureList.disp.latent_shape,
+                self.options.structureList.disp.shape)
+            if options.structureList.disp.network == 'simple':
+                self.dispdec = simpleMLP(
+                    self.options.structureList.disp.latent_shape,
+                    self.options.structureList.disp.infeature,
+                    self.options.structureList.disp.shape[::-1])
+            elif self.options.structureList.disp.network == 'dispGraphNet':
+                assert A is not None and ref_vertices is not None, \
+                    "Graph Net requires Adjacent matrix and verteices"
+                self.dispdec = dispGraphNet(
+                    A, ref_vertices, 
+                    infeature = self.options.structureList.SMPL.latent_shape,
+                    inShape = self.options.inShape)
+            else:
+                raise ValueError(options.structureList.disp.network)
         
-        # downstream MLP for camera parameters
-        self.cameraNN  = cameraNet(self.infeature, inShape=7).to(device)
+        # --------- texture encoder and decoder ---------
+        if options.structureList.text.enable:
+            if options.structureList.text.network[:6] == 'simple':    # for vertex
+                self.textenc = simpleMLP(
+                    self.options.structureList.text.infeature, 
+                    self.options.structureList.text.latent_shape,
+                    self.options.structureList.text.shape)
+            elif options.structureList.text.network[:7] == 'downNet': # for uv map
+                self.textenc = downNet()
+            else:
+                raise ValueError(options.structureList.text.network)
+            
+            if options.structureList.text.network[-6:] == 'simple':   # for vertex
+                self.textdec = simpleMLP(
+                    self.options.structureList.text.latent_shape,
+                    self.options.structureList.text.infeature, 
+                    self.options.structureList.text.shape[::-1])
+            elif options.structureList.text.network[-5:] == 'upNet':
+                self.textdec = upNet(
+                    self.options.structureList.SMPL.latent_shape,
+                    inShape = self.options.inShape, 
+                    outdim = 3)
+            else:
+                raise ValueError(options.structureList.text.network)
         
-        # downstream upnet for texture
-        self.textureNN = textupNet(infeature=self.infeature, inShape=7).to(device)
+        # --------- camera encoder and decoder ---------
+        if options.structureList.camera.enable:
+            self.cameraenc = simpleMLP(
+                self.options.structureList.camera.infeature, 
+                self.options.structureList.camera.latent_shape,
+                self.options.structureList.camera.shape)
+            if options.structureList.camera.network == 'simple':
+                self.cameradec = simpleMLP(
+                    self.options.structureList.camera.latent_shape,
+                    self.options.structureList.camera.infeature,
+                    self.options.structureList.camera.shape[::-1])
+            elif options.structureList.camera.network == 'cam':
+                self.SMPLdec = cameraNet( 
+                    self.options.structureList.SMPL.latent_shape, 
+                    inShape = self.options.inShape,
+                    numiters= 3)    # maybe 1 would be better 
+            else:
+                raise ValueError(options.structureList.text.network)
         
-        # downstream pose net
-        self.smplPoseNN = poseNet(self.infeature, inShape=7).to(device)
+        # --------- image encoder and decoder ---------
+        self.imageenc = downNet()
+        self.imagedec = upNet(
+            infeature = 2048, 
+            inShape = self.options.inShape, 
+            outdim = 3)
         
-        # downstream displacement graph net
-        self.clothesNN = dispNet(A, ref_vertices).to(device)
         
-        # backward subnet
-        if options.backwardNetOn:
-            self. cameraBackNet = None
-            raise NotImplementedError('to be implemented')
-    
-    def forward(self, x, init_cam, init_pose, init_shape):
+    def forward(self, x, init_cam = None, init_pose = None, init_shape = None):
+                
+        # extract latent codes 
+        codes, connections = self.imageenc(x)
         
-        # extract features separately for camera, SMPL, disp and color
-        # shape {Bx2048x4}
-        x, connections = self.resnet50(x)
+        # reconctruct index map
+        indexMap = self.imagedec(codes, connections)
         
-        if self.options.cut_feature:
-            raise NotImplementedError('cut feature to be implemented')
-        else:
-            # predict all components
-            camera = self.cameraNN(x, init_cam)
-            smpl   = self.smplPoseNN(x, init_pose, init_shape)
-            disps  = self.clothesNN(x)
-            color  = self.textureNN(x,connections)
         
-        out = {'camera': camera,
-               'smpl': smpl,
-               'disp': disps,
-               'color': color }        
+        
+        
+        out = {'latentCode': codes,
+               'indexMap'  : indexMap,
+               }
+        
         
         return out  
-    
-    
-class multiple_parallel(nn.Module):
-    def __init__(self, structure_options, A, ref_vertices, device = 'cuda'):
-        super(multiple_downstream, self).__init__()
-    
+      
 
 options = namedtuple('options', structure_options.keys())(**structure_options)
 mesh = Mesh(options, 0, device = 'cpu')

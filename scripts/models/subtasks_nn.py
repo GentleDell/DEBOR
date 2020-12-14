@@ -11,19 +11,62 @@ import torch
 import torch.nn as nn
 
 from graph_layers import GraphResBlock, GraphLinear
-from unet import upsampleLayer
+from unet import upsampleLayer, downsampleLayer
 
-class dispNet(nn.Module):
+
+class simpleMLP(nn.Module):
+    '''
+    Simple MLP structure for encoding and decoding.
+    
+    Structure adapted from:
+        Instant recovery of shape from spectrum via latentspace connections
+        https://github.com/riccardomarin/InstantRecoveryFromSpectrum
+    '''
+    def __init__(self, infeature, outfeature, direction, inShape = None,
+                 layers = [80, 160, 320, 640, 320, 160, 80],
+                 bactchNormOn = True, actFunc = 'selu'):
+        super(simpleMLP, self).__init__()
+        
+        MLPlayers = []
+        
+        # convert code shape 
+        if direction == 'dec':
+            MLPlayers.append(nn.Conv2d(infeature, infeature, inShape))
+        
+        MLPlayers.append(nn.Linear(infeature, layers[0]))
+        for n in range(1, len(layers)):
+            
+            if actFunc.lower() == 'selu':
+                MLPlayers.append(nn.SELU())
+            else:
+                MLPlayers.append(nn.ReLU())
+            
+            if bactchNormOn:
+                MLPlayers.append(nn.BatchNorm1d(layers[n-1]))
+                
+            MLPlayers.append(nn.Linear(layers[n-1], layers[n]))
+        
+        MLPlayers.append(nn.SELU())
+        MLPlayers.append(nn.BatchNorm1d(layers[n]))
+        MLPlayers.append(nn.Linear(layers[n], outfeature))          
+        
+        self.NN = nn.Sequential(*MLPlayers)
+        
+    def forward(self, x):
+        
+        return self.NN(x)        
+
+class dispGraphNet(nn.Module):
     
     def __init__(self, A, ref_vertices, num_layers=5, num_channels=512, 
                  infeature = 2048, inShape = 7):
-        super(dispNet, self).__init__()
+        super(dispGraphNet, self).__init__()
         
         self.A = A
         self.ref_vertices = ref_vertices
         self.inconv = nn.Conv2d(infeature, infeature, inShape)
 
-        layers = [GraphLinear(3 + 2048, 2 * num_channels)]
+        layers = [GraphLinear(3 + infeature, 2 * num_channels)]
         layers.append(GraphResBlock(2 * num_channels, num_channels, A))
         
         for i in range(num_layers):
@@ -59,12 +102,38 @@ class dispNet(nn.Module):
         shape = self.shape(x).permute(0,2,1)
 
         return shape
+
+class downNet(nn.Module):
+    def __init__(self, dropRate: float = 0, batchNormalization: bool = True):
+        super(downNet, self).__init__()
+        
+        base_depth = 64
+        kernelSize = 4
+        
+        # structure for downsampling 
+        self.d1 = downsampleLayer(3, base_depth, kernelSize)
+        self.d2 = downsampleLayer(base_depth  , base_depth*2, kernelSize, bn=True)
+        self.d3 = downsampleLayer(base_depth*2, base_depth*4, kernelSize, bn=True)
+        self.d4 = downsampleLayer(base_depth*4, base_depth*8, kernelSize, bn=True)
+        self.d5 = downsampleLayer(base_depth*8, base_depth*16, kernelSize, paddings=2, bn=True)
+        self.d6 = downsampleLayer(base_depth*16, base_depth*32, kernelSize, bn=True) 
+        
+    def forward(self, x):
+        
+        d1 = self.d1(x)     # 112x112x64
+        d2 = self.d2(d1)    # 56x56x128
+        d3 = self.d3(d2)    # 28x28x256
+        d4 = self.d4(d3)    # 14x14x512
+        d5 = self.d5(d4)    # 8x8x1024
+        d6 = self.d6(d5)    # 4x4x2048
     
-class textupNet(nn.Module):
+        return d6, [d5, d4]
+    
+class upNet(nn.Module):
     def __init__(self, dropRate: float = 0, batchNormalization: bool = True,
                  infeature = 2048, inShape = 7, outdim = 3, outkernelSize = 3,
                  conditionOn = False):
-        super(textupNet, self).__init__()
+        super(upNet, self).__init__()
         
         base_depth = 64
         kernelSize = 4
@@ -72,11 +141,11 @@ class textupNet(nn.Module):
         if conditionOn:
             raise NotImplementedError('conditiona layers to be implemented')
         
-        self.u1 = upsampleLayer(infeature, base_depth*16, kernelSize-1,                      
+        self.u1 = upsampleLayer(infeature, int(infeature/2), kernelSize-1,                      
                                 dropout_rate=dropRate, bn=batchNormalization)
-        self.u2 = upsampleLayer(base_depth*16 + int(infeature/2), base_depth*8, kernelSize-1,     
+        self.u2 = upsampleLayer(int(infeature/2) + int(infeature/2), int(infeature/4), kernelSize-1,     
                                 dropout_rate=dropRate, bn=batchNormalization) 
-        self.u3 = upsampleLayer(base_depth*8 + int(infeature/4), base_depth*4, kernelSize-1,      
+        self.u3 = upsampleLayer(int(infeature/4) + int(infeature/4), base_depth*4, kernelSize-1,      
                                 dropout_rate=dropRate, bn=batchNormalization)
         self.u4 = upsampleLayer(base_depth*4, base_depth*2, kernelSize-1,
                                 dropout_rate=dropRate, bn=batchNormalization)
@@ -114,7 +183,7 @@ class poseNet(nn.Module):
         self.numiters = numiters
         
         self.inconv = nn.Conv2d(infeature, infeature, inShape)
-        self.fc1   = nn.Linear(2048  + npose + 10, 1024)
+        self.fc1   = nn.Linear(infeature  + npose + 10, 1024)
         self.relu1 = nn.ReLU()
         self.drop1 = nn.Dropout()
         self.fc2   = nn.Linear(1024, 1024)
@@ -167,7 +236,7 @@ class poseNet(nn.Module):
             out.append(init_shape)
 
         return out
-    
+      
 class cameraNet(nn.Module):
     '''
     Code adapted from from TexturePose[1], pytorch_HMR[2] and expose[3].
@@ -183,7 +252,7 @@ class cameraNet(nn.Module):
         self.numiters = numiters
         
         self.inconv = nn.Conv2d(infeature, infeature, inShape)
-        self.fc1   = nn.Linear(2048 + 3, 1024)
+        self.fc1   = nn.Linear(infeature + 3, 1024)
         self.relu1 = nn.ReLU()
         self.drop1 = nn.Dropout()
         self.fc2   = nn.Linear(1024, 1024)
