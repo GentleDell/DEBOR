@@ -120,9 +120,11 @@ class BaseDataset(Dataset):
                                      'pose':  registration['pose'], 
                                      'trans': registration['trans']})
             
-            # read and resize UV texture map
+            # read and resize UV texture map same for the segmentation 
             UV_textureMap = cv2.imread( pjn(obj, 'registered_tex.jpg') )[:,:,::-1]/255.0
             UV_textureMap = cv2.resize(UV_textureMap, (self.options.img_res, self.options.img_res), cv2.INTER_CUBIC)
+            if "_pose" in obj.split('/')[-1]:
+                UV_textureMap = np.flip(UV_textureMap, axis = 0)
             self.UVmapGT.append(UV_textureMap)
             
             self.objname.append(obj.split('/')[-1])
