@@ -133,6 +133,8 @@ def render_MGN(camList: list, lightList: list, fileList: list,
         # load new object and disselect it 
         bpy.ops.import_scene.obj( filepath = mats[ meshName+'_path' ] )
         bpy.data.objects[2].select_set(False)
+        while len(bpy.data.materials) > 1:
+            bpy.data.materials.remove(bpy.data.materials[0])
         
         # create mesh texture node for rendering if no texture exist
         texImageNode = bpy.data.materials[0].node_tree.nodes.new('ShaderNodeTexImage')
