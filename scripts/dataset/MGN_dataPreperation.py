@@ -239,7 +239,27 @@ if __name__ == "__main__":
     if cfgs['requireConfirm']:
         msg = 'Do you confirm that the settings are correct?'
         assert input("%s (Y/N) " % msg).lower() == 'y', 'Settings are not comfirmed.'
+    
+    if cfgs['enable_augmentation']:
+        outstr = \
+        ''' 
+        To do augmentation, folders of subjects must have the "/GroundTruth"
+        subfolder containing displacements for augmentation.
+    
+        Thus, a proper order of the dataset properation is:
+        1. run MGN_dataPreperation.py with 'enable_displacement' on and 
+        "enable_rendering" off.
         
+        2. run MGN_dataPreAugmentation.py to augment the dataset.
+        
+        3. run MGN_dataPreperation.py with 'enable_displacement' off and 
+        "enable_rendering" on to render RGB images.
+        
+        No operation would be conducted after showing this message.
+        '''
+        print(outstr)
+        sys.exit(0)
+    
     # prepare the data for rendering
     prepareData(cfgs)
     

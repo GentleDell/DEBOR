@@ -865,7 +865,7 @@ def verifyOneGroundTruth(path_object: str, path_SMPLmodel: str,
         
 if __name__ == "__main__":
     
-    path_object = '../../datasets/MGN_brighter/125611515860795'
+    path_object = '../../datasets/SampleMGNDateset/125611487366941'
     
     with open('../dataset/dataset_preparation_cfg.yaml') as f:
         cfgs = yaml.load(f, Loader=yaml.FullLoader)

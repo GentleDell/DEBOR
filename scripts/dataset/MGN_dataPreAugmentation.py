@@ -9,7 +9,6 @@ import pickle
 from glob import glob
 import os
 from os.path import join as pjn
-from shutil import copy2
 from distutils.dir_util import copy_tree
 import sys 
 sys.path.append( "../" )
@@ -20,10 +19,12 @@ import open3d as o3d
 
 from models import SMPL
 from utils.vis_util import read_Obj
-from utils.mesh_util import generateSMPLmesh, create_fullO3DMesh
+from utils.mesh_util import create_fullO3DMesh
+
 
 def remove_irrelevant(folder):
-       
+    
+    # rename and convert the image format
     tex_image = pjn(folder, 'registered_tex.jpg')
     seg_image = pjn(folder, 'segmentation.png')
     img = o3d.io.read_image( pjn(folder, 'smpl_registered_0.png') )
@@ -31,10 +32,12 @@ def remove_irrelevant(folder):
     img = o3d.io.read_image( pjn(folder, 'smpl_registered_1.png') )
     o3d.io.write_image(seg_image, img)
     
+    # remove irrelevant data
     os.remove( pjn(folder, 'smpl_registered.mtl') )
     os.remove( pjn(folder, 'smpl_registered_0.png') )
     os.remove( pjn(folder, 'smpl_registered_1.png') )
     
+    # remove mtl in the obj file which brings conflict during rendering
     rmLines = 5
     nfirstlines = []
     targetFile  = pjn(folder, 'smpl_registered.obj')
@@ -44,10 +47,10 @@ def remove_irrelevant(folder):
             nfirstlines.append(next(f))
         for line in f:
             out.write(line)
-
     os.remove(targetFile)
     os.rename(tempFile, targetFile)
         
+    
 class MGN_subjectPreAugmentation(object):
     
     def __init__(self, path_MGN: str, pathSMPL: str):
@@ -192,10 +195,23 @@ class MGN_subjectPreAugmentation(object):
                         pickle.dump( smplParams, open( pjn(newfolder, "registration.pkl"), "wb" ) )
             else:
                 raise NotImplementedError('other augmentations not implemented yet')
-                
-    
+      
         
-pathmodel = '/home/zhantao/Documents/masterProject/DEBOR/body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl'
-path = '../../datasets/MGN_brighter'
-mgn  = MGN_subjectPreAugmentation(path, pathmodel)
-mgn.augment_MGN()
+if __name__ == "__main__":
+    '''
+    To do augmentation, folders of subjects must have the "/GroundTruth"
+    subfolder containing displacements for augmentation.
+    
+    Thus, a proper order of the dataset properation is:
+        1. run MGN_dataPreperation.py with 'enable_displacement' on and 
+        "enable_rendering" off.
+        
+        2. run this script(MGN_dataPreAugmentation.py) to augment the dataset.
+        
+        3. run MGN_dataPreperation.py with 'enable_displacement' off and 
+        "enable_rendering" on to render RGB images.
+    
+    '''
+    pathmodel = '/home/zhantao/Documents/masterProject/DEBOR/body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl'
+    path = '../../datasets/MGN_brighter'
+    mgn  = MGN_subjectPreAugmentation(path, pathmodel)
