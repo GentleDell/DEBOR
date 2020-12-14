@@ -118,6 +118,8 @@ class downNet(nn.Module):
         self.d5 = downsampleLayer(base_depth*8, base_depth*16, kernelSize, paddings=2, bn=True)
         self.d6 = downsampleLayer(base_depth*16, base_depth*32, kernelSize, bn=True) 
         
+        self.dn = nn.AvgPool2d(kernelSize)
+        
     def forward(self, x):
         
         d1 = self.d1(x)     # 112x112x64
@@ -126,8 +128,11 @@ class downNet(nn.Module):
         d4 = self.d4(d3)    # 14x14x512
         d5 = self.d5(d4)    # 8x8x1024
         d6 = self.d6(d5)    # 4x4x2048
-    
-        return d6, [d5, d4]
+        
+        dn = self.dn(d6)    # 1x1x2048 for latent loss
+        dn = dn.view(dn.shape[0], 2048, -1)
+        
+        return d6, [d5, d4], dn
     
 class upNet(nn.Module):
     def __init__(self, dropRate: float = 0, batchNormalization: bool = True,

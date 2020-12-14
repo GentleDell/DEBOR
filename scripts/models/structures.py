@@ -27,7 +27,6 @@ class DEBORNet(nn.Module):
         super(DEBORNet, self).__init__()
         
         self.options = structure_options
-        self.infeature = 2048
         
         # --------- SMPL model encoder and decoder ---------
         if options.structureList.SMPL.enable:
@@ -71,22 +70,33 @@ class DEBORNet(nn.Module):
         
         # --------- texture encoder and decoder ---------
         if options.structureList.text.enable:
-            if options.structureList.text.network[:6] == 'simple':    # for vertex
+            if options.structureList.text.network[:6] == 'simple': 
+                # for vertex
                 self.textenc = simpleMLP(
                     self.options.structureList.text.infeature, 
                     self.options.structureList.text.latent_shape,
                     self.options.structureList.text.shape)
-            elif options.structureList.text.network[:7] == 'downNet': # for uv map
+            elif options.structureList.text.network[:7] == 'downNet': 
+                # for uv map
+                raise NotImplementedError(
+                    "might be harmful since uvmap is constant " +
+                    "under different body, disp and camera.")
                 self.textenc = downNet()
             else:
                 raise ValueError(options.structureList.text.network)
             
-            if options.structureList.text.network[-6:] == 'simple':   # for vertex
+            if options.structureList.text.network[-6:] == 'simple':   
+                # for vertex
                 self.textdec = simpleMLP(
                     self.options.structureList.text.latent_shape,
                     self.options.structureList.text.infeature, 
                     self.options.structureList.text.shape[::-1])
             elif options.structureList.text.network[-5:] == 'upNet':
+                # for uv map
+                raise NotImplementedError(
+                    "might be harmful since uvmap is constant " +
+                    "under different body, disp and camera.")
+                self.textenc = downNet()
                 self.textdec = upNet(
                     self.options.structureList.SMPL.latent_shape,
                     inShape = self.options.inShape, 
@@ -120,22 +130,67 @@ class DEBORNet(nn.Module):
             inShape = self.options.inShape, 
             outdim = 3)
         
+        # --------- loss for the structure ---------
+        latent_loss
+        supervised_loss
+        structure_loss
+        interBatch_loss
         
-    def forward(self, x, init_cam = None, init_pose = None, init_shape = None):
+        
+    def forward(self, image, SMPLParams = None, disps = None, text = None,
+                camera = None, init_cam = None, init_pose = None, 
+                init_shape = None):
                 
         # extract latent codes 
-        codes, connections = self.imageenc(x)
+        codes, connections, aggCode = self.imageenc(image)
         
         # reconctruct index map
         indexMap = self.imagedec(codes, connections)
-        
-        
-        
-        
+ 
         out = {'latentCode': codes,
-               'indexMap'  : indexMap,
-               }
+               'indexMap'  : indexMap}   
+ 
+        if self.options.structureList.SMPL.enable:
+            assert SMPLParams is not None, \
+                "to train SMPL branch, SMPLParams must be given."
+            SMPL_encode = self.SMPLenc(SMPLParams)
+            SMPL_decode = self.SMPLenc(
+                aggCode[:,self.options.structureList.SMPL.latent_start:
+                          self.options.structureList.SMPL.latent_shape])
+            out['SMPL_enc'] = SMPL_encode
+            out['SMPL_dec'] = SMPL_decode
         
+        if self.options.structureList.disp.enable:
+            assert disps is not None, \
+                "to train disp branch, GT disp must be given."
+            disp_encode = self.dispenc(disps)
+            disp_decode = self.dispdec(
+                aggCode[:,self.options.structureList.disp.latent_start:
+                          self.options.structureList.disp.latent_shape])
+            out['disp_enc'] = disp_encode
+            out['disp_dec'] = disp_decode
+        
+        if self.options.structureList.text.enable:
+            assert text is not None, \
+                "to train texture branch, GT texture/color must be given."
+            text_encode = self.textenc(text)
+            text_decode = self.textdec(
+                aggCode[:,self.options.structureList.text.latent_start:
+                          self.options.structureList.text.latent_shape])
+            out['text_enc'] = text_encode
+            out['text_dec'] = text_decode
+        
+        if self.options.structureList.camera.enable:
+            assert camera is not None, \
+                "to train camera branch, GT camera must be given."
+            camera_encode = self.cameraenc(camera)
+            camera_decode = self.cameradec(
+                aggCode[:,self.options.structureList.camera.latent_start:
+                          self.options.structureList.camera.latent_shape])
+            out['camera_enc'] = camera_encode
+            out['camera_dec'] = camera_decode
+        
+        # compute loss
         
         return out  
       
