@@ -19,5 +19,5 @@ Implementation of dressed expressive body reconstruction (DEBOR)
 - plyfile (required by open3d)
 - sklearn (required by open3d.ml3d)
 - pandas  (required by open3d.ml3d)
-- open3d
+- open3d  (>= 0.11.2)
 
