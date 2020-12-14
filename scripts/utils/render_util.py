@@ -373,7 +373,7 @@ def getMaterialPath(bodyRoot: str):
     
     output = []    
     
-    for sample in glob( pjn(bodyRoot, '*') ):
+    for sample in sorted(glob( pjn(bodyRoot, '*') )):
         sample = os.path.abspath(sample)
         sampleDict = {"sampleRootPath": sample,
                       "smpl_registered_path": pjn(sample, 'smpl_registered.obj'),
