@@ -20,4 +20,9 @@ Implementation of dressed expressive body reconstruction (DEBOR)
 - sklearn (required by open3d.ml3d)
 - pandas  (required by open3d.ml3d)
 - open3d  (>= 0.11.2)
+- pyopengl
+- mesh https://github.com/MPI-IS/mesh
 
+## Thirdparty
+
+- smpl_webuser

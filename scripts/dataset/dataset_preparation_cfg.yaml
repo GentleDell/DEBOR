@@ -46,4 +46,4 @@ fully_neighborsfilter: True     # whether to conduct NN filtering on full body
 neighborsfilter_iters: 1        # the numbe of iterations to conduct filtering
 
 # MGN dataset augmentation
-enable_augmentation: True       # not really used in the codes, just a note
+enable_augmentation: False       # not really used in the codes, just a note

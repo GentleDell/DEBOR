@@ -18,6 +18,8 @@ import bpy
 def blenderCamera(camera, scene):
     '''
     This function computes the camera in the blender scene.
+    
+    Codes adapted from blender forum.
 
     Parameters
     ----------

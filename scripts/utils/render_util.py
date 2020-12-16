@@ -36,8 +36,8 @@ class light():
 
 class camera():
     '''
-    This class stores parameters to construct a camera. Including intrinsics
-    and extrinsics. 
+    This class stores parameters to construct a camera for blender rendering.
+    Including intrinsics and extrinsics. 
     
     Key attributes:
         The rotation in this class describes the rotation around axes of the 
