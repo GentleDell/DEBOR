@@ -10,7 +10,7 @@ import ast
 import sys 
 sys.path.append( "../" )
 sys.path.append( "../third_party/smpl_webuser" )
-import pathlib
+# import pathlib
 import argparse
 import subprocess
 from glob import glob
@@ -22,6 +22,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 from utils.render_util import light, camera, getMaterialPath
 from utils.mesh_util import read_Obj, meshDifferentiator
+# import torch
+# import models.camera as cameraPers
 
 
 def _run_blender(blenderPath: str, renderPath: str, cachePath: str, stdin=None,
@@ -157,7 +159,67 @@ def prepareData(cfgs: dict):
     with open( pjn(cfgs['cachePath'], 'lights.pickle'), 'wb') as handle:
         pickle.dump(lightList, handle) 
     
+def bboxCamera(bbox: list, orignalCamera: camera):
+    '''
+    This function computes the equivalent camera of the bounding box from the 
+    original camera. The camera is named virtual camera or bboxcamera.
+    
+    Since the sensor does not change after croping, fx and fy do not change 
+    while cx and cy change correspondingly. For extrinsics, there are two 
+    ways to simulate the crop: 
+        1. "rotate" the virtual camera such that the body is in the center of 
+        the virtual camera (bounding box). 
+        2. "translate" the virtual camera such that the body is in the center
+        of the virtual camera (bounding box)
+    
+    Both method would bring some "errors", i.e. they can not simulate a real 
+    camera perfectly. We choose the later since it is simlper.              
+    
+    Parameters
+    ----------
+    bbox : list
+        Bounding box coordinate.
+    orignalCamera : camera
+        Original bounding box object.
 
+    Returns
+    -------
+    cameraBbox:
+        The camera object of the bounding box
+
+    '''
+    min_row, min_col, max_row, max_col = bbox
+    cameraIntrinsic = orignalCamera.getGeneralCamera()['intrinsic']
+    
+    # prepare camera for boundingbox
+    bboxCy, bboxCx = (max_row+min_row)/2, (max_col+min_col)/2
+    Cx, Cy = cameraIntrinsic[0,-1], cameraIntrinsic[1,-1]
+    fx, fy = cameraIntrinsic[0, 0], cameraIntrinsic[1, 1]
+    
+    # f does not change; cx and cy change.
+    cameraIntBbox = np.hstack([cameraIntrinsic[:,:2], 
+                              np.array([(max_col-min_col)/2, 
+                                        (max_row-min_row)/2,
+                                         1])[:,None]])
+    
+    # simulate uncentered cropping by translation
+    cameraExtBbox = orignalCamera.getGeneralCamera()['extrinsic']
+    depth  = np.linalg.norm(cameraExtBbox[:,-1])
+    cameraExtBbox[0,-1] += -(bboxCx - Cx)/fx*depth    # minus means from vc to oc
+    cameraExtBbox[1,-1] += -(bboxCy - Cy)/fy*depth
+        
+    # create an object for verification
+    # in camera object, the internal transformation is blender style, i.e.
+    # cam coord is rXuYbZ while in general we use rXdYfZ; 
+    # world coord is rXfYuZ;
+    # R converts world to cam, -R@T points from cam to world under cam coord.
+    cameraBbox = camera(projModel="perspective", intrinsics=cameraIntBbox)
+    R_bld =  np.diag([1,-1,-1])@cameraExtBbox[:,:3]    # convert to blender coord style
+    t_bld =  -R_bld.T@np.diag([1,-1,-1])@cameraExtBbox[:,-1]    # convert to blender style
+    cameraBbox.setExtrinsic(rotation = R_bld, location = t_bld)
+    
+    return cameraBbox
+    
 def boundingbox(imagefolder: str, cameraIdx: int = 0, marginSize: int = 25):
     '''
     This function projects vertices to the image plane with the saved camera 
@@ -199,7 +261,7 @@ def boundingbox(imagefolder: str, cameraIdx: int = 0, marginSize: int = 25):
     
     # convert point cloud to homogenous coordinate system and project to image.
     vertices = np.hstack( (vertices, np.ones([vertices.shape[0], 1])) ).transpose()
-    pixels = cameraCLS.projection(vertices).astype('int')
+    pixels = cameraCLS.projection(vertices).astype('int')    
     
     # prepare to visualize the projection
     visImage = np.zeros( [int(cameraCLS.resolution_y), int(cameraCLS.resolution_x)] )
@@ -213,8 +275,33 @@ def boundingbox(imagefolder: str, cameraIdx: int = 0, marginSize: int = 25):
     min_row = min(max(pixels[1,:].min() - marginSize, 0), cameraCLS.resolution_y)
     
     with open(pjn( imagefolder, 'camera%d'%cameraIdx+'_boundingbox.txt'), "w") as output:
-        output.write(str([min_row, min_col, max_row, max_col]))
-        
+        output.write(str([min_row, min_col, max_row, max_col]))    
+    
+    # create/verify the camera of bounding box
+    cameraBbox = bboxCamera([min_row, min_col, max_row, max_col], cameraCLS)
+
+    pixels = cameraBbox.projection(vertices).astype('int')    
+    visImage = np.zeros( [int(cameraBbox.resolution_y), int(cameraBbox.resolution_x)] )
+    visImage[pixels[1,:], pixels[0,:]] = 1
+    plt.imsave( pjn( imagefolder, 'camera%d_light0_bbox_projection.png'%(cameraIdx) ), visImage )
+
+    # verify the quality/correctness of the camera model
+    # pathobje = pjn('../../body_model/text_uv_coor_smpl.obj')
+    # _, smplMesh, _, _ = read_Obj(pathobje)
+    # cameraIntBbox, cameraExtBbox = cameraBbox.getGeneralCamera().values()
+    # cam = cameraPers()
+    # pixels,_ = cam(fx=torch.tensor(cameraIntBbox[0,0])[None,None,None], 
+    #                fy=torch.tensor(cameraIntBbox[1,1])[None,None,None], 
+    #                cx=torch.tensor(cameraIntBbox[0,2])[None,None,None], 
+    #                cy=torch.tensor(cameraIntBbox[1,2])[None,None,None], 
+    #                rotation=torch.tensor(cameraExtBbox[:,:3])[None],
+    #                translation=torch.tensor(cameraExtBbox[:,-1])[None], 
+    #                points=torch.tensor(vertices.T[:,:3])[None], 
+    #                faces=torch.tensor(smplMesh).int()[None], 
+    #                visibilityOn = True)
+    # visImage = np.zeros( [int(cameraBbox.resolution_y), int(cameraBbox.resolution_x)] )
+    # visImage[pixels[0][:,1].int(), pixels[0][:,0].int()] = 1
+    # plt.imsave( pjn( imagefolder, 'camera%d_light0_bbox_projection_pycam.png'%(cameraIdx) ), visImage )
 
 if __name__ == "__main__":
     '''
@@ -264,10 +351,10 @@ if __name__ == "__main__":
     prepareData(cfgs)
     
     # set paths and use blender to render images
-    if cfgs['enable_rendering']:
-        renderScript = pjn( str(pathlib.Path().absolute().parent), "utils/blender_util.py" )        
-        cachePathAbs = str(pathlib.Path(__file__).parent.absolute())
-        _run_blender(cfgs['blenderPath'], renderPath=renderScript, cachePath = cachePathAbs)
+    # if cfgs['enable_rendering']:
+    #     renderScript = pjn( str(pathlib.Path().absolute().parent), "utils/blender_util.py" )        
+    #     cachePathAbs = str(pathlib.Path(__file__).parent.absolute())
+    #     _run_blender(cfgs['blenderPath'], renderPath=renderScript, cachePath = cachePathAbs)
     
     # compute the ground truth displacements; verify the quality of the 
     # rendered image and get the bounding box
@@ -286,7 +373,5 @@ if __name__ == "__main__":
                           len(cfgs['camera_horiz_distance']) * len(cfgs['camera_resolution'])
             for cameraIdx in range(numCameras):
                 boundingbox( pjn(folder, 'rendering'), cameraIdx, marginSize = 10)
-    
-    
     
     
