@@ -193,7 +193,6 @@ class DEBORNet(nn.Module):
         # compute loss
         
         return out  
-      
 
 options = namedtuple('options', structure_options.keys())(**structure_options)
 mesh = Mesh(options, 0, device = 'cpu')

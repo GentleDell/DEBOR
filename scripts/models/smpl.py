@@ -52,7 +52,7 @@ class SMPL(nn.Module):
         # self.register_buffer('J_regressor_extra', J_regressor_extra)
         # self.joints_idx = cfg.JOINTS_IDX
 
-    def forward(self, pose, beta, trans):
+    def forward(self, pose, beta, trans=None):
         device = pose.device
         batch_size = pose.shape[0]
         v_template = self.v_template[None, :]
@@ -96,7 +96,9 @@ class SMPL(nn.Module):
         rest_shape_h = torch.cat([v_posed, torch.ones_like(v_posed)[:, :, [0]]], dim=-1)
         v = torch.matmul(T, rest_shape_h[:, :, :, None])[:, :, :3, 0]
         
-        v = v + trans[:,None,:]
+        if trans is not None:
+            v = v + trans[:,None,:]
+            
         return v
 
     # def get_joints(self, vertices):
