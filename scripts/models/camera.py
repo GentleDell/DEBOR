@@ -99,7 +99,8 @@ class cameraPerspective(nn.Module):
         fx, fy, cx, cy : 
             camera intrinsics, [B,1,1]. 
         rotation, translation :
-            camera extrinsics, [B,3,3].
+            camera extrinsics, describing rotation followed by the translation,
+            [B,3,3] and [B,3,1].
         points : 
             vertices of the mesh, [B,6890,3].
         faces : 

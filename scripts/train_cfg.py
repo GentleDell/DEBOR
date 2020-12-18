@@ -19,6 +19,7 @@ class TrainOptions(object):
         data = self.parser.add_argument_group('Data')
         data.add_argument('--graph_matrics_path', default='/home/zhantao/Documents/masterProject/DEBOR/body_model/mesh_downsampling.npz', help='path to graph adjacency matrix and upsampling/downsampling matrices') 
         data.add_argument('--smpl_model_path', default='/home/zhantao/Documents/masterProject/DEBOR/body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl', help='path to SMPL model') 
+        data.add_argument('--smpl_objfile_path', default='/home/zhantao/Documents/masterProject/DEBOR/body_model/text_uv_coor_smpl.obj', help='path to SMPL .obj file') 
         data.add_argument('--smpl_edges_path', default='/home/zhantao/Documents/masterProject/DEBOR/body_model/edges_smpl.npy', help='path to SMPL edges(from CAPE).') 
         data.add_argument('--img_per_object', default=48) 
 
