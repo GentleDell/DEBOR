@@ -64,19 +64,21 @@ def crop(img, center, scale, res, rot=0):
     old_y = max(0, ul[0]), min(len(img), br[0])
     old_x = max(0, ul[1]), min(len(img[0]), br[1])
     
-    new_shape = [new_y[1], new_x[1]]
+    new_shape = [ max(new_y[1], new_x[1]) ]*2    # make the img square
     if len(img.shape) > 2:
         new_shape += [img.shape[2]]
     new_img = np.zeros(new_shape)
     new_img[new_y[0]:new_y[1], new_x[0]:new_x[1]] = \
-            img[old_y[0]:old_y[1], old_x[0]:old_x[1]]
-                                                    
+            img[old_y[0]:old_y[1], old_x[0]:old_x[1]]           
+                
     if not rot == 0:
         # Remove padding
         new_img = scipy.ndimage.rotate(new_img, rot)
         new_img = new_img[pad:-pad, pad:-pad]
-
-    new_img = np.array(Image.fromarray(new_img.astype(np.uint8)).resize(res)).astype('float64')
+        
+    # here we use cv2 to avoid artifacts introduced by the PIL resize
+    new_img = cv2.resize(new_img, (res[0], res[1]), cv2.INTER_CUBIC).astype('float64')
+    new_img = np.clip(new_img, 0, 255)
     return new_img
 
 def uncrop(img, center, scale, orig_shape, rot=0, is_rgb=True):
