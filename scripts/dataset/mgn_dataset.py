@@ -19,6 +19,7 @@ import cv2
 from models import camera as perspCamera
 from models.geometric_layers import rodrigues
 from utils.vis_util import read_Obj
+from utils.mesh_util import generateSMPLmesh
 from utils.render_util import camera as cameraClass
 from utils.imutils import crop, flip_img, background_replacing
 
@@ -41,6 +42,7 @@ class BaseDataset(Dataset):
         
         self.cameraObj = perspCamera()
         print('**since we predict camera, image flipping is disabled**')
+        _, self.smplMesh, _, _ = read_Obj(self.options.smpl_objfile_path)
         
         self.obj_dir = sorted( glob(pjn(options.mgn_dir, '*')) )
         numOBJ = len(self.obj_dir)
@@ -158,48 +160,73 @@ class BaseDataset(Dataset):
         # img = background_replacing(img, bgimg)
         # plt.imshow(img/255)
         
-        self.debug(0)
-      
-        
+        # self.getIndicesMap(1848, camera = None, debug=True)
+              
     def indicesToCode(self, indices):
-        
+        '''
+        It converts the given indices value to the corresponding codes.
+
+        Parameters
+        ----------
+        indices : tensor
+            Indices of vertices
+
+        Returns
+        -------
+        Codes
+
+        '''
         major = indices//689
         minor = (indices - major*689)//53
         order = indices - major*689 - minor*53
         
         return torch.stack([major/10, minor/13, order/53]).T
         
-    def debug(self, index):
-        from utils.mesh_util import generateSMPLmesh
-        
-        pathRegistr = pjn(self.obj_dir[index], 'registration.pkl')
-        path_SMPLmodel = "../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
-        smplVert, smplMesh, smpl_text_uv_coord, smpl_text_uv_mesh = \
-            read_Obj('../body_model/text_uv_coor_smpl.obj')
+    def getIndicesMap(self, index, camera):
+        '''
+        This function creates the indices map of the image specified by the 
+        index. The projection is decided by the given camera.
+
+        Parameters
+        ----------
+        index : int
+            The index of the target image.
+        camera : dict
+            Camera model for projection.
+
+        Returns
+        -------
+        indexMap
+
+        '''
+        pathRegistr = pjn(self.obj_dir[index//self.options.img_per_object],
+                          'registration.pkl')
         
         # load SMPL parameters and model; transform vertices and joints.
         registration = pickle.load(open(pathRegistr, 'rb'),  encoding='iso-8859-1')
         SMPLvert_posed, joints = generateSMPLmesh(
-                path_SMPLmodel, registration['pose'], registration['betas'], 
+                self.options.smpl_model_path, registration['pose'], registration['betas'], 
                 registration['trans'], asTensor=True)
         
         # read displacements
         disp = torch.Tensor(
             self.meshGT[ index//self.options.img_per_object ]['displacement'])
-    
-        raise ValueError('for sc != 1, wrong results')
-        flip,pn,rot,sc = self.augm_params()
-        rot = 9.10696704601678
-        sc  = 1.3
-        center = self.center[index]
-        scale = self.scale[index]
-        imgname = self.imgname[index]
-        img = cv2.imread(imgname)[:,:,::-1].copy().astype(np.float32)
-        img = self.rgb_processing(img, center, sc*scale, rot, flip, pn)
-        img = torch.from_numpy(img).float()
-        camera = self.camera_trans(
-            img, center, sc*scale, rot, flip, self.camera[index], self.options)
         
+        # # debug
+        # if debug:
+        #     flip,pn,rot,sc = self.augm_params()
+        #     center = self.center[index]
+        #     scale = self.scale[index]
+        #     imgname = self.imgname[index]
+        #     img = cv2.imread(imgname)[:,:,::-1].copy().astype(np.float32)
+        #     img = self.rgb_processing(img, center, sc*scale, rot, flip, pn)
+        #     img = torch.from_numpy(img).float()
+        #     camera = self.camera_trans(
+        #         img, center, sc*scale, rot, flip, self.camera[index], self.options)
+        #     indexMap = img.permute(1,2,0).numpy()
+        
+        # project the GT vertice to the image plane to get the coordinates
+        # of the projected pixels and visibility.
         pixels, visibility = self.cameraObj(
             fx=torch.tensor(camera['intrinsic'][0,0])[None,None,None], 
             fy=torch.tensor(camera['intrinsic'][1,1])[None,None,None], 
@@ -208,20 +235,26 @@ class BaseDataset(Dataset):
             rotation=torch.tensor(camera['extrinsic'][:,:3])[None],
             translation=torch.tensor(camera['extrinsic'][:,-1])[None], 
             points=(SMPLvert_posed + disp)[None].double(), 
-            faces=torch.tensor(smplMesh).int()[None], 
+            faces=torch.tensor(self.smplMesh).int()[None], 
             visibilityOn = True)
         
-        keptPixs =  (pixels[0][:,0]<224)*(pixels[0][:,0]>=0)\
-                   *(pixels[0][:,1]<224)*(pixels[0][:,1]>=0)
-        pixels = pixels[0][keptPixs]
-        visImage = np.zeros( [224, 224, 3] )
+        # convert data type and remove pixels out of the image boundary.
+        pixels = pixels[0].round()
+        keptPixs =  (pixels[:,0]<224)*(pixels[:,0]>=0)\
+                   *(pixels[:,1]<224)*(pixels[:,1]>=0)
+        pixels = pixels[keptPixs]
+        
+        # remove invisible vertices/pixels
         batchId, indices = torch.where(visibility)
         indices = indices[keptPixs]
-        visImage[pixels[:,1].int(), pixels[:,0].int()] = \
+        
+        # create GT indexMap
+        indexMap = torch.zeros(
+            [self.options.img_res, self.options.img_res, 3])
+        indexMap[pixels[:,1].long(), pixels[:,0].long()] = \
             self.indicesToCode(indices)
-        
-        return True
-        
+            
+        return indexMap
         
     def augm_params(self):
         """Get augmentation parameters."""
@@ -313,9 +346,10 @@ class BaseDataset(Dataset):
         # the rotation direction should be the inverse one so we add a minus.
         rotMat = rodrigues(torch.Tensor([[0,0,-rot*np.pi/180]]))[0]
         R = rotMat@R
+        t = rotMat@t[:,None]
         
         cameraOrig['intrinsic'] = cameraIntBbox
-        cameraOrig['extrinsic'] = np.hstack([R,t[:,None]])
+        cameraOrig['extrinsic'] = np.hstack([R,t])
         
         return cameraOrig
 
@@ -363,9 +397,10 @@ class BaseDataset(Dataset):
         # item['UVmapGT']= self.UVmapGT[ index//self.options.img_per_object ]    # no need to touch the GT
         
         item['cameraGT'] = self.camera_trans(
-            img, center, sc*scale, rot, flip, self.options)
+            img, center, sc*scale, rot, flip, self.camera[index], self.options
+            )
         
-        # item['indexMapGT'] = 
+        item['indexMapGT'] = self.getIndicesMap(index, item['cameraGT'])
         
         return item
 
