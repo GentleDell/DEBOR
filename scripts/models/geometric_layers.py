@@ -1,10 +1,20 @@
 """
-Using the codes from GraphCMR: https://github.com/nkolot/GraphCMR
+Borrow the codes partially
+from GraphCMR: 
+    https://github.com/nkolot/GraphCMR
 
-Useful geometric operations, e.g. Orthographic projection and a differentiable Rodrigues formula
-Parts of the code are taken from https://github.com/MandyMo/pytorch_HMR
+from HMR:
+    https://github.com/MandyMo/pytorch_HMR
+    
+from VIBE:
+    https://github.com/mkocabas/VIBE
+    
+Some functions are from MPI:
+    Contact: ps-license@tuebingen.mpg.de
+    
 """
 import torch
+from torch.nn import functional as F
 
 def rodrigues(theta):
     """Convert axis-angle representation to rotation matrix.
@@ -57,3 +67,39 @@ def orthographic_projection(X, camera):
     shape = X_trans.shape
     X_2d = (camera[:, :, 0] * X_trans.view(shape[0], -1)).view(shape)
     return X_2d
+
+def rotMat_to_rot6d(x): 
+    """Convert 3x3 rotation matrix to 6D rotation representation.
+    Based on Zhou et al., "On the Continuity of Rotation Representations in Neural Networks", CVPR 2019
+    Input:
+        (B,3,3) Batch of corresponding rotation matrices
+    Output:
+        (B,6) Batch of 6-D rotation representations
+    """
+    rot_6d = torch.cat(
+        [x[:,:,0], x[:,:,1]], dim = 0).T.reshape(x.shape[0], -1)
+    
+    return rot_6d
+
+def rot6d_to_rotmat(x):
+    """Convert 6D rotation representation to 3x3 rotation matrix.
+    Based on Zhou et al., "On the Continuity of Rotation Representations in Neural Networks", CVPR 2019
+    Input:
+        (B,6) Batch of 6-D rotation representations
+    Output:
+        (B,3,3) Batch of corresponding rotation matrices
+    """
+    x = x.view(-1,3,2)
+
+    # Normalize the first vector
+    b1 = F.normalize(x[:, :, 0], dim=1, eps=1e-6)
+
+    dot_prod = torch.sum(b1 * x[:, :, 1], dim=1, keepdim=True)
+    # Compute the second vector by finding the orthogonal complement to it
+    b2 = F.normalize(x[:, :, 1] - dot_prod * b1, dim=-1, eps=1e-6)
+
+    # Finish building the basis by taking the cross product
+    b3 = torch.cross(b1, b2, dim=1)
+    rot_mats = torch.stack([b1, b2, b3], dim=-1)
+
+    return rot_mats
