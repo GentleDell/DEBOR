@@ -16,6 +16,9 @@ from torchvision.transforms import Normalize
 import numpy as np
 import cv2
 
+from models import camera as perspCamera
+from models.geometric_layers import rodrigues
+from utils.vis_util import read_Obj
 from utils.render_util import camera as cameraClass
 from utils.imutils import crop, flip_img, background_replacing
 
@@ -35,6 +38,9 @@ class BaseDataset(Dataset):
         # for train, test and validation
         assert split in ('train', 'test', 'validation')
         self.split = split
+        
+        self.cameraObj = perspCamera()
+        print('**since we predict camera, image flipping is disabled**')
         
         self.obj_dir = sorted( glob(pjn(options.mgn_dir, '*')) )
         numOBJ = len(self.obj_dir)
@@ -84,8 +90,10 @@ class BaseDataset(Dataset):
                     # In both matplotlib and cv2, image is stored as [numrow, numcol, chn]
                     # i.e. [y, x, c]
                     boundbox = literal_eval(f.readline())
-                    self.center.append( [(boundbox[0]+boundbox[2])/2, (boundbox[1]+boundbox[3])/2] )
-                    self.scale.append( max((boundbox[2]-boundbox[0])/200, (boundbox[3]-boundbox[1])/200) )
+                    self.center.append( [(boundbox[0]+boundbox[2])/2, 
+                                         (boundbox[1]+boundbox[3])/2] )
+                    self.scale.append( max((boundbox[2]-boundbox[0])/200, 
+                                           (boundbox[3]-boundbox[1])/200) )
                 
                 # read and covert camera parameters
                 with open( pjn( path_to_rendering,'camera%d_intrinsic_smpl_registered.txt'%(cameraIdx)) ) as f:
@@ -149,7 +157,72 @@ class BaseDataset(Dataset):
         # bgimg = cv2.imread(self.bgimages[251])[:,:,::-1].copy().astype(np.float32)
         # img = background_replacing(img, bgimg)
         # plt.imshow(img/255)
-
+        
+        self.debug(0)
+      
+        
+    def indicesToCode(self, indices):
+        
+        major = indices//689
+        minor = (indices - major*689)//53
+        order = indices - major*689 - minor*53
+        
+        return torch.stack([major/10, minor/13, order/53]).T
+        
+    def debug(self, index):
+        from utils.mesh_util import generateSMPLmesh
+        
+        pathRegistr = pjn(self.obj_dir[index], 'registration.pkl')
+        path_SMPLmodel = "../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
+        smplVert, smplMesh, smpl_text_uv_coord, smpl_text_uv_mesh = \
+            read_Obj('../body_model/text_uv_coor_smpl.obj')
+        
+        # load SMPL parameters and model; transform vertices and joints.
+        registration = pickle.load(open(pathRegistr, 'rb'),  encoding='iso-8859-1')
+        SMPLvert_posed, joints = generateSMPLmesh(
+                path_SMPLmodel, registration['pose'], registration['betas'], 
+                registration['trans'], asTensor=True)
+        
+        # read displacements
+        disp = torch.Tensor(
+            self.meshGT[ index//self.options.img_per_object ]['displacement'])
+    
+        raise ValueError('for sc != 1, wrong results')
+        flip,pn,rot,sc = self.augm_params()
+        rot = 9.10696704601678
+        sc  = 1.3
+        center = self.center[index]
+        scale = self.scale[index]
+        imgname = self.imgname[index]
+        img = cv2.imread(imgname)[:,:,::-1].copy().astype(np.float32)
+        img = self.rgb_processing(img, center, sc*scale, rot, flip, pn)
+        img = torch.from_numpy(img).float()
+        camera = self.camera_trans(
+            img, center, sc*scale, rot, flip, self.camera[index], self.options)
+        
+        pixels, visibility = self.cameraObj(
+            fx=torch.tensor(camera['intrinsic'][0,0])[None,None,None], 
+            fy=torch.tensor(camera['intrinsic'][1,1])[None,None,None], 
+            cx=torch.tensor(camera['intrinsic'][0,2])[None,None,None], 
+            cy=torch.tensor(camera['intrinsic'][1,2])[None,None,None], 
+            rotation=torch.tensor(camera['extrinsic'][:,:3])[None],
+            translation=torch.tensor(camera['extrinsic'][:,-1])[None], 
+            points=(SMPLvert_posed + disp)[None].double(), 
+            faces=torch.tensor(smplMesh).int()[None], 
+            visibilityOn = True)
+        
+        keptPixs =  (pixels[0][:,0]<224)*(pixels[0][:,0]>=0)\
+                   *(pixels[0][:,1]<224)*(pixels[0][:,1]>=0)
+        pixels = pixels[0][keptPixs]
+        visImage = np.zeros( [224, 224, 3] )
+        batchId, indices = torch.where(visibility)
+        indices = indices[keptPixs]
+        visImage[pixels[:,1].int(), pixels[:,0].int()] = \
+            self.indicesToCode(indices)
+        
+        return True
+        
+        
     def augm_params(self):
         """Get augmentation parameters."""
         flip = 0            # flipping
@@ -158,7 +231,7 @@ class BaseDataset(Dataset):
         sc = 1              # scaling
         if self.split == 'train':
             # We flip with probability 1/2
-            if np.random.uniform() <= 0.5:
+            if np.random.uniform() <= 0.0:
                 flip = 1
 	    
             # Each channel is multiplied with a number 
@@ -201,6 +274,51 @@ class BaseDataset(Dataset):
         rgb_img = np.transpose(rgb_img.astype('float32'),(2,0,1))/255.0
         return rgb_img
 
+    def camera_trans(self, img, center, scale, rot, flip, cameraOrig, options):
+        """Generate GT camera corresponding to augmented image"""
+        
+        assert flip == 0, 'camera GT does not support flipping yet.'
+        
+        # In crop, if there is rotation it would padd the image to the length
+        # of diagnal, so we should consider the effect. Besides, it uses scipy 
+        # rotate function which would further ZoomOut a bit. 
+        new_res = img.shape[1]
+        origres = scale*200
+        if rot == 0:
+            res_ratio = new_res/origres
+        else:
+            padd = round(origres*(np.sqrt(2)-1)/2)
+            newE = round((padd + origres/2)*np.sqrt(2)\
+                   *np.cos((45 - np.abs(rot))/180*np.pi))
+            final= (newE - padd)*2
+            res_ratio = new_res/final
+        
+        cameraIntrinsic = cameraOrig['intrinsic']
+        # prepare camera for boundingbox
+        bboxCy, bboxCx = center[0], center[1]
+        Cx, Cy = cameraIntrinsic[0,-1], cameraIntrinsic[1,-1]
+        fx, fy = cameraIntrinsic[0, 0], cameraIntrinsic[1, 1]        
+        cameraIntBbox = np.array([[fx*res_ratio, 0, new_res/2],
+                                  [0, fy*res_ratio, new_res/2],
+                                  [0, 0, 1]])
+        
+        # simulate uncentered cropping by translation
+        cameraExtBbox = cameraOrig['extrinsic']
+        R, t = cameraExtBbox[:,:3], cameraExtBbox[:,-1]
+        depth  = np.linalg.norm(t)
+        t[0] += -(bboxCx - Cx)/fx*depth    # minus means from vc to oc
+        t[1] += -(bboxCy - Cy)/fy*depth
+                
+        # simulate centered image rotation as camera rotation
+        # the rotation direction should be the inverse one so we add a minus.
+        rotMat = rodrigues(torch.Tensor([[0,0,-rot*np.pi/180]]))[0]
+        R = rotMat@R
+        
+        cameraOrig['intrinsic'] = cameraIntBbox
+        cameraOrig['extrinsic'] = np.hstack([R,t[:,None]])
+        
+        return cameraOrig
+
     def __getitem__(self, index):
         item = {}
         center = self.center[index]
@@ -239,22 +357,16 @@ class BaseDataset(Dataset):
         item['scale'] = float(sc * scale)
         item['center'] = np.array(center).astype(np.float32)
         item['orig_shape'] = orig_shape
-        item['camera'] = self.camera[index]
         
         item['meshGT'] = self.meshGT[ index//self.options.img_per_object ]
         item['smplGT'] = self.smplGTParas[ index//self.options.img_per_object ]
-        item['UVmapGT']= self.UVmapGT[ index//self.options.img_per_object ]    # no need to touch the GT
+        # item['UVmapGT']= self.UVmapGT[ index//self.options.img_per_object ]    # no need to touch the GT
         
-        # Pass path to segmentation mask, if available
-        # Cannot load the mask because each mask has different size, so they cannot be stacked in one tensor
-        # try:
-        #     item['maskname'] = self.maskname[index]
-        # except AttributeError:
-        #     item['maskname'] = ''
-        # try:
-        #     item['partname'] = self.partname[index]
-        # except AttributeError:
-        #     item['partname'] = ''
+        item['cameraGT'] = self.camera_trans(
+            img, center, sc*scale, rot, flip, self.options)
+        
+        # item['indexMapGT'] = 
+        
         return item
 
     def __len__(self):

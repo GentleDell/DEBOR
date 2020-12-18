@@ -1,4 +1,6 @@
 """
+Using the codes from GraphCMR: https://github.com/nkolot/GraphCMR
+
 Useful geometric operations, e.g. Orthographic projection and a differentiable Rodrigues formula
 Parts of the code are taken from https://github.com/MandyMo/pytorch_HMR
 """
