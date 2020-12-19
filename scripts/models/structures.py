@@ -10,118 +10,119 @@ import sys
 if __name__ == '__main__':
     if abspath('../') not in sys.path:
         sys.path.append(abspath('../'))
-from collections import namedtuple
 
-import torch
 import torch.nn as nn
 
-from structures_options import structure_options
+from structure_loss import latentCode_loss, supervision_loss, rendering_loss
 from subtasks_nn import simpleMLP, cameraNet
 from subtasks_nn import poseNet, upNet, downNet, dispGraphNet
 
-
 class DEBORNet(nn.Module):
-    
     def __init__(self, structure_options, A = None, ref_vertices = None, 
                  device = 'cuda'):
         super(DEBORNet, self).__init__()
         
         self.options = structure_options
+        self.SMPLcfg = self.options.structureList.SMPL
+        self.dispcfg = self.options.structureList.disp
+        self.textcfg = self.options.structureList.text
+        self.cameracfg = self.options.structureList.camera
+        self.indMapcfg = self.options.structureList.indexMap
         
         # --------- SMPL model encoder and decoder ---------
-        if options.structureList.SMPL.enable:
+        if self.SMPLcfg.enable:
             self.SMPLenc = simpleMLP(
-                self.options.structureList.SMPL.infeature, 
-                self.options.structureList.SMPL.latent_shape,
-                self.options.structureList.SMPL.shape)
-            if options.structureList.SMPL.network == 'simple':
+                self.SMPLcfg.infeature, 
+                self.SMPLcfg.latent_shape,
+                self.SMPLcfg.shape)
+            if self.SMPLcfg.network == 'simple':
                 self.SMPLdec = simpleMLP(
-                    self.options.structureList.SMPL.latent_shape,
-                    self.options.structureList.SMPL.infeature,
-                    self.options.structureList.SMPL.shape[::-1])
-            elif options.structureList.SMPL.network == 'poseNet':
+                    self.SMPLcfg.latent_shape,
+                    self.SMPLcfg.infeature,
+                    self.SMPLcfg.shape[::-1])
+            elif self.SMPLcfg.network == 'poseNet':
                 self.SMPLdec = poseNet( 
-                    self.options.structureList.SMPL.latent_shape, 
+                    self.SMPLcfg.latent_shape, 
                     inShape = self.options.inShape,
                     numiters= 3)    # maybe 1 would be better 
             else:
-                raise ValueError(options.structureList.SMPL.network)
+                raise ValueError(self.SMPLcfg.network)
             
         # --------- displacements encoder and decoder ---------
-        if options.structureList.disps.enable:
+        if self.options.structureList.disps.enable:
             self.dispenc = simpleMLP(
-                self.options.structureList.disp.infeature, 
-                self.options.structureList.disp.latent_shape,
-                self.options.structureList.disp.shape)
-            if options.structureList.disp.network == 'simple':
+                self.dispcfg.infeature, 
+                self.dispcfg.latent_shape,
+                self.dispcfg.shape)
+            if self.dispcfg.network == 'simple':
                 self.dispdec = simpleMLP(
-                    self.options.structureList.disp.latent_shape,
-                    self.options.structureList.disp.infeature,
-                    self.options.structureList.disp.shape[::-1])
-            elif self.options.structureList.disp.network == 'dispGraphNet':
+                    self.dispcfg.latent_shape,
+                    self.dispcfg.infeature,
+                    self.dispcfg.shape[::-1])
+            elif self.dispcfg.network == 'dispGraphNet':
                 assert A is not None and ref_vertices is not None, \
                     "Graph Net requires Adjacent matrix and verteices"
                 self.dispdec = dispGraphNet(
                     A, ref_vertices, 
-                    infeature = self.options.structureList.SMPL.latent_shape,
+                    infeature = self.SMPLcfg.latent_shape,
                     inShape = self.options.inShape)
             else:
-                raise ValueError(options.structureList.disp.network)
+                raise ValueError(self.dispcfg.network)
         
         # --------- texture encoder and decoder ---------
-        if options.structureList.text.enable:
-            if options.structureList.text.network[:6] == 'simple': 
+        if self.textcfg.enable:
+            if self.textcfg.network[:6] == 'simple': 
                 # for vertex
                 self.textenc = simpleMLP(
-                    self.options.structureList.text.infeature, 
-                    self.options.structureList.text.latent_shape,
-                    self.options.structureList.text.shape)
-            elif options.structureList.text.network[:7] == 'downNet': 
+                    self.textcfg.infeature, 
+                    self.textcfg.latent_shape,
+                    self.textcfg.shape)
+            elif self.textcfg.network[:7] == 'downNet': 
                 # for uv map
                 raise NotImplementedError(
                     "might be harmful since uvmap is constant " +
                     "under different body, disp and camera.")
                 self.textenc = downNet()
             else:
-                raise ValueError(options.structureList.text.network)
+                raise ValueError(self.textcfg.network)
             
-            if options.structureList.text.network[-6:] == 'simple':   
+            if self.textcfg.network[-6:] == 'simple':   
                 # for vertex
                 self.textdec = simpleMLP(
-                    self.options.structureList.text.latent_shape,
-                    self.options.structureList.text.infeature, 
-                    self.options.structureList.text.shape[::-1])
-            elif options.structureList.text.network[-5:] == 'upNet':
+                    self.textcfg.latent_shape,
+                    self.textcfg.infeature, 
+                    self.textcfg.shape[::-1])
+            elif self.textcfg.network[-5:] == 'upNet':
                 # for uv map
                 raise NotImplementedError(
                     "might be harmful since uvmap is constant " +
                     "under different body, disp and camera.")
                 self.textenc = downNet()
                 self.textdec = upNet(
-                    self.options.structureList.SMPL.latent_shape,
+                    self.SMPLcfg.latent_shape,
                     inShape = self.options.inShape, 
                     outdim = 3)
             else:
-                raise ValueError(options.structureList.text.network)
+                raise ValueError(self.textcfg.network)
         
         # --------- camera encoder and decoder ---------
-        if options.structureList.camera.enable:
+        if self.cameracfg.enable:
             self.cameraenc = simpleMLP(
-                self.options.structureList.camera.infeature, 
-                self.options.structureList.camera.latent_shape,
-                self.options.structureList.camera.shape)
-            if options.structureList.camera.network == 'simple':
+                self.cameracfg.infeature, 
+                self.cameracfg.latent_shape,
+                self.cameracfg.shape)
+            if self.cameracfg.network == 'simple':
                 self.cameradec = simpleMLP(
-                    self.options.structureList.camera.latent_shape,
-                    self.options.structureList.camera.infeature,
-                    self.options.structureList.camera.shape[::-1])
-            elif options.structureList.camera.network == 'cam':
+                    self.cameracfg.latent_shape,
+                    self.cameracfg.infeature,
+                    self.cameracfg.shape[::-1])
+            elif self.cameracfg.network == 'cam':
                 self.SMPLdec = cameraNet( 
-                    self.options.structureList.SMPL.latent_shape, 
+                    self.SMPLcfg.latent_shape, 
                     inShape = self.options.inShape,
                     numiters= 3)    # maybe 1 would be better 
             else:
-                raise ValueError(options.structureList.text.network)
+                raise ValueError(self.textcfg.network)
         
         # --------- image encoder and decoder ---------
         self.imageenc = downNet()
@@ -131,11 +132,40 @@ class DEBORNet(nn.Module):
             outdim = 3)
         
         # --------- loss for the structure ---------
-        latent_loss
-        supervised_loss
-        structure_loss
-        interBatch_loss
+        self.latent_loss = latentCode_loss(structure_options)
+        self.supVis_loss = supervision_loss(structure_options)
+        self.render_loss = rendering_loss(structure_options)
         
+        # TODO
+        # self.interBatch_loss Try it later
+        
+    def computeLoss(self, inputImg, pred, GT, latentCode):
+        latentCodeLoss = self.latent_loss(
+            latentCode['imageCode'],
+            latentCode['SMPLCode'], latentCode['dispCode'], 
+            latentCode['textCode'], latentCode['cameraCode'])
+        superviseLoss  = self.supVis_loss(
+            pred, GT['imageGT'], GT['SMPLGT'], GT['dispGT'], 
+            GT['textGT'], GT['cameraGT'])
+        renderingLoss  = self.render_loss(inputImg, pred, GT)
+        
+        latCodeLossSum = \
+            self.SMPLcfg.weight.latentCode*latentCodeLoss['smplCode_loss'] +\
+            self.dispcfg.weight.latentCode*latentCodeLoss['dispCode_loss'] +\
+            self.textcfg.weight.latentCode*latentCodeLoss['textCode_loss'] +\
+            self.cameracfg.weight.latentCode*latentCodeLoss['cameraCode_loss']
+        supVisLossSum = \
+            self.indMapcfg.weight*superviseLoss['indexMapSupv_loss'] +\
+            self.SMPLcfg.weight.supervision*superviseLoss['smplSupv_loss'] +\
+            self.dispcfg.weight.supervision*superviseLoss['dispSupv_loss'] +\
+            self.textcfg.weight.supervision*superviseLoss['textSupv_loss'] +\
+            self.cameracfg.weight.supervision*superviseLoss['cameraSupv_loss']
+            
+        outLoss = {'loss': supVisLossSum + latCodeLossSum + renderingLoss,
+                   'supVisLoss': supVisLossSum,
+                   'latCodeLoss': latCodeLossSum,
+                   'renderLoss': renderingLoss}
+        return outLoss
         
     def forward(self, image, SMPLParams = None, disps = None, text = None,
                 camera = None, init_cam = None, init_pose = None, 
@@ -147,58 +177,47 @@ class DEBORNet(nn.Module):
         # reconctruct index map
         indexMap = self.imagedec(codes, connections)
  
-        out = {'latentCode': codes,
-               'indexMap'  : indexMap}   
+        prediction = {'indexMap'  : indexMap}
+        latentCode = {'latentCode': codes}   
  
-        if self.options.structureList.SMPL.enable:
+        if self.SMPLcfg.enable:
             assert SMPLParams is not None, \
                 "to train SMPL branch, SMPLParams must be given."
             SMPL_encode = self.SMPLenc(SMPLParams)
-            SMPL_decode = self.SMPLenc(
-                aggCode[:,self.options.structureList.SMPL.latent_start:
-                          self.options.structureList.SMPL.latent_shape])
-            out['SMPL_enc'] = SMPL_encode
-            out['SMPL_dec'] = SMPL_decode
+            SMPL_decode = self.SMPLdec(
+                aggCode[:,self.SMPLcfg.latent_start:
+                          self.SMPLcfg.latent_shape])
+            latentCode['SMPL'] = SMPL_encode
+            prediction['SMPL'] = SMPL_decode
         
-        if self.options.structureList.disp.enable:
+        if self.dispcfg.enable:
             assert disps is not None, \
                 "to train disp branch, GT disp must be given."
             disp_encode = self.dispenc(disps)
             disp_decode = self.dispdec(
-                aggCode[:,self.options.structureList.disp.latent_start:
-                          self.options.structureList.disp.latent_shape])
-            out['disp_enc'] = disp_encode
-            out['disp_dec'] = disp_decode
+                aggCode[:,self.dispcfg.latent_start:
+                          self.dispcfg.latent_shape])
+            latentCode['disp'] = disp_encode
+            prediction['disp'] = disp_decode
         
-        if self.options.structureList.text.enable:
+        if self.textcfg.enable:
             assert text is not None, \
                 "to train texture branch, GT texture/color must be given."
             text_encode = self.textenc(text)
             text_decode = self.textdec(
-                aggCode[:,self.options.structureList.text.latent_start:
-                          self.options.structureList.text.latent_shape])
-            out['text_enc'] = text_encode
-            out['text_dec'] = text_decode
+                aggCode[:,self.textcfg.latent_start:
+                          self.textcfg.latent_shape])
+            latentCode['text'] = text_encode
+            prediction['text'] = text_decode
         
-        if self.options.structureList.camera.enable:
+        if self.cameracfg.enable:
             assert camera is not None, \
                 "to train camera branch, GT camera must be given."
             camera_encode = self.cameraenc(camera)
             camera_decode = self.cameradec(
-                aggCode[:,self.options.structureList.camera.latent_start:
-                          self.options.structureList.camera.latent_shape])
-            out['camera_enc'] = camera_encode
-            out['camera_dec'] = camera_decode
+                aggCode[:,self.cameracfg.latent_start:
+                          self.cameracfg.latent_shape])
+            latentCode['camera'] = camera_encode
+            prediction['camera'] = camera_decode
         
-        # compute loss
-        
-        return out  
-
-options = namedtuple('options', structure_options.keys())(**structure_options)
-mesh = Mesh(options, 0, device = 'cpu')
-
-verif = multiple_downstream(options, mesh.adjmat, mesh.ref_vertices.t(), 'cpu')
-out = verif(torch.Tensor(1, 3,224,224),
-            init_cam = torch.tensor([0.9, 0., 0.]).view(1, 3),
-            init_pose = torch.zeros(144)[None,:],
-            init_shape = torch.zeros(10)[None, :])
+        return prediction, latentCode
