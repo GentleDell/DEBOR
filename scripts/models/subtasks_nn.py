@@ -10,8 +10,8 @@ from __future__ import division
 import torch 
 import torch.nn as nn
 
-from graph_layers import GraphResBlock, GraphLinear
-from unet import upsampleLayer, downsampleLayer
+from .graph_layers import GraphResBlock, GraphLinear
+from .unet import upsampleLayer, downsampleLayer
 
 
 class simpleMLP(nn.Module):
@@ -22,16 +22,12 @@ class simpleMLP(nn.Module):
         Instant recovery of shape from spectrum via latentspace connections
         https://github.com/riccardomarin/InstantRecoveryFromSpectrum
     '''
-    def __init__(self, infeature, outfeature, direction, inShape = None,
+    def __init__(self, infeature, outfeature, inShape = None,
                  layers = [80, 160, 320, 640, 320, 160, 80],
                  bactchNormOn = True, actFunc = 'selu'):
         super(simpleMLP, self).__init__()
         
         MLPlayers = []
-        
-        # convert code shape 
-        if direction == 'dec':
-            MLPlayers.append(nn.Conv2d(infeature, infeature, inShape))
         
         MLPlayers.append(nn.Linear(infeature, layers[0]))
         for n in range(1, len(layers)):
@@ -132,7 +128,7 @@ class downNet(nn.Module):
         dn = self.dn(d6)    # 1x1x2048 for latent loss
         dn = dn.view(dn.shape[0], 2048, -1)
         
-        return d6, [d5, d4], dn
+        return d6, [d4, d5], dn
     
 class upNet(nn.Module):
     def __init__(self, dropRate: float = 0, batchNormalization: bool = True,
@@ -149,7 +145,7 @@ class upNet(nn.Module):
         self.u1 = upsampleLayer(infeature, int(infeature/2), kernelSize-1,                      
                                 dropout_rate=dropRate, bn=batchNormalization)
         self.u2 = upsampleLayer(int(infeature/2) + int(infeature/2), int(infeature/4), kernelSize-1,     
-                                dropout_rate=dropRate, bn=batchNormalization) 
+                                paddings=0, dropout_rate=dropRate, bn=batchNormalization) 
         self.u3 = upsampleLayer(int(infeature/4) + int(infeature/4), base_depth*4, kernelSize-1,      
                                 dropout_rate=dropRate, bn=batchNormalization)
         self.u4 = upsampleLayer(base_depth*4, base_depth*2, kernelSize-1,

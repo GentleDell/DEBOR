@@ -7,12 +7,14 @@ Created on Tue Dec 15 23:13:35 2020
 """
 import random
 from os.path import join as pjn
+from collections import namedtuple
 
 import torch 
 import torch.nn as nn
 
-import camera
-import SMPL
+from .camera import cameraPerspective as camera
+from .smpl import SMPL
+from .geometric_layers import rot6d_to_axisAngle
 from utils.vis_util import read_Obj
 
 class latentCode_loss(nn.Module):
@@ -39,18 +41,31 @@ class latentCode_loss(nn.Module):
         super(latentCode_loss, self).__init__()
         
         self.options = options
-        self.SMPLcfg = options.structureList.SMPL
-        self.dispcfg = options.structureList.disp
-        self.textcfg = options.structureList.text
-        self.cameracfg = options.structureList.camera
+        
+        self.SMPLcfg = namedtuple(
+            'options', 
+            self.options.structureList['SMPL'].keys())\
+                (**self.options.structureList['SMPL'])
+        self.dispcfg = namedtuple(
+            'options', 
+            self.options.structureList['disp'].keys())\
+            (**self.options.structureList['disp'])
+        self.textcfg = namedtuple(
+            'options', 
+            self.options.structureList['text'].keys())\
+            (**self.options.structureList['text'])
+        self.cameracfg = namedtuple(
+            'options', 
+            self.options.structureList['camera'].keys())\
+            (**self.options.structureList['camera'])
             
-        self.SMPLlossfunc = (nn.L1Loss(), nn.L2Loss())\
+        self.SMPLlossfunc = (nn.L1Loss(), nn.MSELoss())\
                 [self.SMPLcfg.latent_lossFunc == 'L2']
-        self.displossfunc = (nn.L1Loss(), nn.L2Loss())\
+        self.displossfunc = (nn.L1Loss(), nn.MSELoss())\
                 [self.dispcfg.latent_lossFunc == 'L2']
-        self.textlossfunc = (nn.L1Loss(), nn.L2Loss())\
+        self.textlossfunc = (nn.L1Loss(), nn.MSELoss())\
                 [self.textcfg.latent_lossFunc == 'L2']
-        self.cameralossfunc = (nn.L1Loss(), nn.L2Loss())\
+        self.cameralossfunc = (nn.L1Loss(), nn.MSELoss())\
                 [self.cameracfg.latent_lossFunc == 'L2']
         
     def forward(self, imgCode, SMPLCode = None, dispCode = None, 
@@ -105,21 +120,37 @@ class supervision_loss(nn.Module):
     def __init__(self, options):
         super(supervision_loss, self).__init__()
         self.options = options
-        self.SMPLcfg = options.structureList.SMPL
-        self.dispcfg = options.structureList.disp
-        self.textcfg = options.structureList.text
-        self.cameracfg = options.structureList.camera
-        self.indMapcfg = options.structureList.indexMap
         
-        self.SMPLlossfunc = (nn.L1Loss(), nn.L2Loss())\
+        self.SMPLcfg = namedtuple(
+            'options', 
+            self.options.structureList['SMPL'].keys())\
+                (**self.options.structureList['SMPL'])
+        self.dispcfg = namedtuple(
+            'options', 
+            self.options.structureList['disp'].keys())\
+            (**self.options.structureList['disp'])
+        self.textcfg = namedtuple(
+            'options', 
+            self.options.structureList['text'].keys())\
+            (**self.options.structureList['text'])
+        self.cameracfg = namedtuple(
+            'options', 
+            self.options.structureList['camera'].keys())\
+            (**self.options.structureList['camera'])
+        self.indMapcfg = namedtuple(
+            'options', 
+            self.options.structureList['indexMap'].keys())\
+            (**self.options.structureList['indexMap'])
+        
+        self.SMPLlossfunc = (nn.L1Loss(), nn.MSELoss())\
                 [self.SMPLcfg.supVis_lossFunc == 'L2']
-        self.displossfunc = (nn.L1Loss(), nn.L2Loss())\
+        self.displossfunc = (nn.L1Loss(), nn.MSELoss())\
                 [self.dispcfg.supVis_lossFunc == 'L2']
-        self.textlossfunc = (nn.L1Loss(), nn.L2Loss())\
+        self.textlossfunc = (nn.L1Loss(), nn.MSELoss())\
                 [self.textcfg.supVis_lossFunc == 'L2']
-        self.cameralossfunc = (nn.L1Loss(), nn.L2Loss())\
+        self.cameralossfunc = (nn.L1Loss(), nn.MSELoss())\
                 [self.cameracfg.supVis_lossFunc == 'L2']
-        self.indMapLossfunc = (nn.L1Loss(), nn.L2Loss())\
+        self.indMapLossfunc = (nn.L1Loss(), nn.MSELoss())\
                 [self.indMapcfg.supVis_lossFunc == 'L2']
         
     def forward(self, prediction, imageGT, SMPLGT = None, 
@@ -159,14 +190,17 @@ class rendering_loss(nn.Module):
     Currently, only the projection loss is implemented.
     '''
     def __init__(self, options):
-        super(self.indexMapSupv_loss, self).__init__()
+        super(rendering_loss, self).__init__()
         self.options = options
-        self.rendercfg = options.structureList.renderings
+        self.rendercfg = namedtuple(
+            'options', 
+            self.options.structureList['rendering'].keys())\
+            (**self.options.structureList['rendering'])
         
         self.projLossFunc = \
-            (nn.L1Loss(), nn.L2Loss())[self.rendercfg.proj_lossFunc == 'L2']
+            (nn.L1Loss(), nn.MSELoss())[self.rendercfg.proj_lossFunc == 'L2']
         self.renderLossFunc = \
-            (nn.L1Loss(), nn.L2Loss())[self.rendercfg.render_lossFunc == 'L2']
+            (nn.L1Loss(), nn.MSELoss())[self.rendercfg.render_lossFunc == 'L2']
         
         # prepare data for projection
         _, self.faces, _, _ = read_Obj(options.smpl_objfile_path)
@@ -182,11 +216,12 @@ class rendering_loss(nn.Module):
         dispPred = predictions['disp']
         cameraPred = predictions['camera']
         
-        raise NotImplementedError('change to 6d representation')
+        # convert to axis angle
+        jointsRot= rot6d_to_axisAngle(SMPLPred[:, :144].reshape(-1, 6))
         predBody = self.SMPLmodel(
-            SMPLPred[:, :72], 
-            SMPLPred[:, 72:82], 
-            SMPLPred[:, 82:85])
+            jointsRot, 
+            SMPLPred[:, 144:154], 
+            SMPLPred[:, 154:157])
         
         predPixels, _ = self.persCamera(
             fx=cameraPred[:,0], 
@@ -243,7 +278,7 @@ class batch_loss(nn.Module):
         self.options = options
         print('batch loss currently only support L2 loss')
         print('only use batch loss after roughly converging!')
-        self.lossfunc = nn.L2Loss()
+        self.lossfunc = nn.MSELoss()
         
     def forward(self, inputNames, predictions, latentCodes):
         

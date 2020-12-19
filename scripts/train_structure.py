@@ -25,7 +25,7 @@ import open3d as o3d
 from dataset import MGNDataset
 from utils import Mesh, BaseTrain, CheckpointDataLoader
 from utils.mesh_util import create_fullO3DMesh
-from models import SMPL, Loss, DEBORNet
+from models import SMPL, DEBORNet
 from models.structures_options import structure_options
 from train_cfg import TrainOptions
 
@@ -36,6 +36,10 @@ o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 class trainer(BaseTrain):
     
     def init(self):
+        # load structure configuration 
+        self.structuresCfg = namedtuple(
+            'options', structure_options.keys())(**structure_options)
+        
         # Create training and testing dataset
         self.train_ds = MGNDataset(self.options, split = 'train')
         self.test_ds  = MGNDataset(self.options, split = 'test')
@@ -48,24 +52,28 @@ class trainer(BaseTrain):
                     shuffle     = False)
 
         # Create Mesh (graph) object
-        self.mesh = Mesh(self.options, self.options.num_downsampling)
-        self.faces = torch.cat( self.options.batch_size * [
-                                self.mesh.faces.to(self.device)[None]
-                                ], dim = 0 )
-        self.faces = self.faces.type(torch.LongTensor).to(self.device)
+        if self.structuresCfg.structureList\
+            ['disp']['network'] == 'dispGraphNet':
+            self.mesh = Mesh(self.options, self.options.num_downsampling)
+            self.faces = torch.cat( self.options.batch_size * [
+                                    self.mesh.faces.to(self.device)[None]
+                                    ], dim = 0 )
+            self.faces = self.faces.type(torch.LongTensor).to(self.device)
         
         # Create SMPL mesh object and edges
         self.smpl = SMPL(self.options.smpl_model_path, self.device)
         self.smplEdge = torch.Tensor(np.load(self.options.smpl_edges_path)) \
-                        .long()  \
-                        .to(self.device)     
+                        .long().to(self.device)
+                        
         # Create model
-        structures = namedtuple(
-            'options', structure_options.keys())(**structure_options)
-        self.model = DEBORNet(
-            structures, 
-            self.mesh.adjmat,
-            self.mesh.ref_vertices.t()).to(self.device)
+        if self.structuresCfg.structureList\
+                ['disp']['network'] == 'dispGraphNet':
+            self.model = DEBORNet(
+                self.structuresCfg, 
+                self.mesh.adjmat,
+                self.mesh.ref_vertices.t()).to(self.device)
+        else:
+            self.model = DEBORNet(self.structuresCfg).to(self.device)
             
         # Setup a optimizer for models
         self.optimizer = torch.optim.Adam(
@@ -83,10 +91,15 @@ class trainer(BaseTrain):
         """Training step."""
         self.model.train()
  
+        # covert shape
+        smplGT = torch.cat([input_batch['smplGT']['betas'],
+                            input_batch['smplGT']['pose'].reshape(-1, 144)],
+                           dim = 1)
+ 
         # forward pass
         pred, codes = self.model(
             input_batch['img'], 
-            input_batch['smplGT'],
+            smplGT,
             input_batch['meshGT']['displacement'],
             input_batch['meshGT']['texture'],
             input_batch['cameraGT'])
@@ -153,46 +166,46 @@ class trainer(BaseTrain):
         if not isfile(_input):
             plt.imsave(_input, data['img'][ind].cpu().permute(1,2,0).clamp(0,1).numpy())
 
-        if self.options.model == 'graphcnn':
-            # Grab GT SMPL parameters and create body body for displacements
-            body_vertices = self.smpl(
-                data['smplGT']['pose'][ind].to(torch.float)[None,:], 
-                data['smplGT']['betas'][ind].to(torch.float)[None,:], 
-                data['smplGT']['trans'][ind].to(torch.float)[None,:]).cpu()
+        # if self.options.model == 'graphcnn':
+        #     # Grab GT SMPL parameters and create body body for displacements
+        #     body_vertices = self.smpl(
+        #         data['smplGT']['pose'][ind].to(torch.float)[None,:], 
+        #         data['smplGT']['betas'][ind].to(torch.float)[None,:], 
+        #         data['smplGT']['trans'][ind].to(torch.float)[None,:]).cpu()
             
-            # Add displacements to naked body
-            predictedBody = body_vertices + \
-                            prediction['predict_vertices'][ind].cpu()[None,:]            
-            # Create predicted mesh and save it
-            predictedMesh = create_fullO3DMesh(predictedBody[0], self.faces.cpu()[0])
-            savepath = pjn( folder, '%s_iters%d_prediction.obj'%
-                           (data['imgname'][ind].split('/')[-1][:-4], 
-                            self.step_count) )
-            o3d.io.write_triangle_mesh(savepath, predictedMesh)
+        #     # Add displacements to naked body
+        #     predictedBody = body_vertices + \
+        #                     prediction['predict_vertices'][ind].cpu()[None,:]            
+        #     # Create predicted mesh and save it
+        #     predictedMesh = create_fullO3DMesh(predictedBody[0], self.faces.cpu()[0])
+        #     savepath = pjn( folder, '%s_iters%d_prediction.obj'%
+        #                    (data['imgname'][ind].split('/')[-1][:-4], 
+        #                     self.step_count) )
+        #     o3d.io.write_triangle_mesh(savepath, predictedMesh)
             
-            # If there is no ground truth, create and save it
-            savepath = pjn( folder, '%s_groundtruth.obj'%
-                           (data['imgname'][ind].split('/')[-1][:-4]) )
-            if not isfile(savepath):
-                grndTruthBody = body_vertices + \
-                            data['meshGT']['displacement'][ind].cpu()[None,:]
-                grndTruthMesh = create_fullO3DMesh(grndTruthBody[0], self.faces.cpu()[0])
-                o3d.io.write_triangle_mesh(savepath, grndTruthMesh)
+        #     # If there is no ground truth, create and save it
+        #     savepath = pjn( folder, '%s_groundtruth.obj'%
+        #                    (data['imgname'][ind].split('/')[-1][:-4]) )
+        #     if not isfile(savepath):
+        #         grndTruthBody = body_vertices + \
+        #                     data['meshGT']['displacement'][ind].cpu()[None,:]
+        #         grndTruthMesh = create_fullO3DMesh(grndTruthBody[0], self.faces.cpu()[0])
+        #         o3d.io.write_triangle_mesh(savepath, grndTruthMesh)
             
-        elif self.options.model == 'unet':
-            # save predicted uvMap
-            savepath = pjn(folder, '%s_iters%d_prediction.png'%
-                           (data['imgname'][ind].split('/')[-1][:-4], 
-                            self.step_count) )
-            plt.imsave(savepath, 
-                       prediction['predict_unMap'][ind].cpu().clamp(0,1).numpy())
+        # elif self.options.model == 'unet':
+        #     # save predicted uvMap
+        #     savepath = pjn(folder, '%s_iters%d_prediction.png'%
+        #                    (data['imgname'][ind].split('/')[-1][:-4], 
+        #                     self.step_count) )
+        #     plt.imsave(savepath, 
+        #                prediction['predict_unMap'][ind].cpu().clamp(0,1).numpy())
             
-            # If there is no ground truth, create and save it
-            savepath = pjn(folder, '%s_groundtruth.png'%
-                           (data['imgname'][ind].split('/')[-1][:-4])) 
-            if not isfile(savepath):
-                plt.imsave(savepath, data['UVmapGT'][ind].cpu().numpy())
-            
+        #     # If there is no ground truth, create and save it
+        #     savepath = pjn(folder, '%s_groundtruth.png'%
+        #                    (data['imgname'][ind].split('/')[-1][:-4])) 
+        #     if not isfile(savepath):
+        #         plt.imsave(savepath, data['UVmapGT'][ind].cpu().numpy())
+                
 
 if __name__ == '__main__':
     # read preparation configurations

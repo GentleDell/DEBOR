@@ -18,6 +18,7 @@ import cv2
 
 from models import camera as perspCamera
 from models.geometric_layers import axisAngle_to_rotationMatrix
+from models.geometric_layers import rotMat_to_rot6d
 from models.geometric_layers import axisAngle_to_Rot6d, rot6d_to_axisAngle 
 from utils.vis_util import read_Obj
 from utils.mesh_util import generateSMPLmesh
@@ -164,6 +165,7 @@ class BaseDataset(Dataset):
         # plt.imshow(img/255)
         
         # self.getIndicesMap(1994, camera = None)
+        # self.__getitem__(0)
               
     def indicesToCode(self, indices):
         '''
@@ -375,7 +377,8 @@ class BaseDataset(Dataset):
         if self.bgimages is not None:
             bgimgname = self.bgimages[ self.bgperm[index] ]
             try:
-                bgimg = cv2.imread(bgimgname)[:,:,::-1].copy().astype(np.float32)
+                bgimg = \
+                    cv2.imread(bgimgname)[:,:,::-1].copy().astype(np.float32)
             except TypeError:
                 print(bgimgname)
             img = background_replacing(img, bgimg)
@@ -398,13 +401,19 @@ class BaseDataset(Dataset):
         item['smplGT'] = self.smplGTParas[ index//self.options.img_per_object ]
         # item['UVmapGT']= self.UVmapGT[ index//self.options.img_per_object ]    # no need to touch the GT
         
-        raise NotImplementedError('convert to 6d representation')
-        item['cameraGT'] = self.camera_trans(
-            img, center, sc*scale, rot, flip, self.camera[index], self.options
-            )
+        GTcamera = self.camera_trans(
+            img, center, sc*scale, rot,flip,self.camera[index],self.options)
+        item['indexMapGT'] = self.getIndicesMap(index, GTcamera)
         
-        item['indexMapGT'] = self.getIndicesMap(index, item['cameraGT'])
-        
+        # In camera, we predict f and 6d rotation only, because:
+        #     1. the Cx Cy are assumed to be the center of the image
+        #     2. t vector is decided by the location of the bbox, which can
+        #        not be recovered by the input cropped image.
+        item['cameraGT'] = {
+            'f_rot':np.hstack([np.array(GTcamera['intrinsic'][0,0][None,None]), 
+                       rotMat_to_rot6d(GTcamera['extrinsic'][:,:3][None])]),
+            't': GTcamera['extrinsic'][:,-1]}
+            
         return item
 
     def __len__(self):

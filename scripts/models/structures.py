@@ -10,12 +10,13 @@ import sys
 if __name__ == '__main__':
     if abspath('../') not in sys.path:
         sys.path.append(abspath('../'))
+from collections import namedtuple
 
 import torch.nn as nn
 
-from structure_loss import latentCode_loss, supervision_loss, rendering_loss
-from subtasks_nn import simpleMLP, cameraNet
-from subtasks_nn import poseNet, upNet, downNet, dispGraphNet
+from .structure_loss import latentCode_loss, supervision_loss, rendering_loss
+from .subtasks_nn import simpleMLP, cameraNet
+from .subtasks_nn import poseNet, upNet, downNet, dispGraphNet
 
 class DEBORNet(nn.Module):
     def __init__(self, structure_options, A = None, ref_vertices = None, 
@@ -23,23 +24,40 @@ class DEBORNet(nn.Module):
         super(DEBORNet, self).__init__()
         
         self.options = structure_options
-        self.SMPLcfg = self.options.structureList.SMPL
-        self.dispcfg = self.options.structureList.disp
-        self.textcfg = self.options.structureList.text
-        self.cameracfg = self.options.structureList.camera
-        self.indMapcfg = self.options.structureList.indexMap
+        
+        self.SMPLcfg = namedtuple(
+            'options', 
+            self.options.structureList['SMPL'].keys())\
+                (**self.options.structureList['SMPL'])
+        self.dispcfg = namedtuple(
+            'options', 
+            self.options.structureList['disp'].keys())\
+            (**self.options.structureList['disp'])
+        self.textcfg = namedtuple(
+            'options', 
+            self.options.structureList['text'].keys())\
+            (**self.options.structureList['text'])
+        self.cameracfg = namedtuple(
+            'options', 
+            self.options.structureList['camera'].keys())\
+            (**self.options.structureList['camera'])
+        self.indMapcfg = namedtuple(
+            'options', 
+            self.options.structureList['indexMap'].keys())\
+            (**self.options.structureList['indexMap'])
         
         # --------- SMPL model encoder and decoder ---------
         if self.SMPLcfg.enable:
             self.SMPLenc = simpleMLP(
                 self.SMPLcfg.infeature, 
                 self.SMPLcfg.latent_shape,
-                self.SMPLcfg.shape)
+                layers = self.SMPLcfg.shape)
             if self.SMPLcfg.network == 'simple':
                 self.SMPLdec = simpleMLP(
                     self.SMPLcfg.latent_shape,
                     self.SMPLcfg.infeature,
-                    self.SMPLcfg.shape[::-1])
+                    inShape= self.options.inShape,
+                    layers = self.SMPLcfg.shape[::-1])
             elif self.SMPLcfg.network == 'poseNet':
                 self.SMPLdec = poseNet( 
                     self.SMPLcfg.latent_shape, 
@@ -49,16 +67,17 @@ class DEBORNet(nn.Module):
                 raise ValueError(self.SMPLcfg.network)
             
         # --------- displacements encoder and decoder ---------
-        if self.options.structureList.disps.enable:
+        if self.dispcfg.enable:
             self.dispenc = simpleMLP(
                 self.dispcfg.infeature, 
                 self.dispcfg.latent_shape,
-                self.dispcfg.shape)
+                layers = self.dispcfg.shape)
             if self.dispcfg.network == 'simple':
                 self.dispdec = simpleMLP(
                     self.dispcfg.latent_shape,
                     self.dispcfg.infeature,
-                    self.dispcfg.shape[::-1])
+                    inShape= self.options.inShape,
+                    layers = self.dispcfg.shape[::-1])
             elif self.dispcfg.network == 'dispGraphNet':
                 assert A is not None and ref_vertices is not None, \
                     "Graph Net requires Adjacent matrix and verteices"
@@ -76,7 +95,7 @@ class DEBORNet(nn.Module):
                 self.textenc = simpleMLP(
                     self.textcfg.infeature, 
                     self.textcfg.latent_shape,
-                    self.textcfg.shape)
+                    layers = self.textcfg.shape)
             elif self.textcfg.network[:7] == 'downNet': 
                 # for uv map
                 raise NotImplementedError(
@@ -91,7 +110,8 @@ class DEBORNet(nn.Module):
                 self.textdec = simpleMLP(
                     self.textcfg.latent_shape,
                     self.textcfg.infeature, 
-                    self.textcfg.shape[::-1])
+                    inShape= self.options.inShape,
+                    layers = self.textcfg.shape[::-1])
             elif self.textcfg.network[-5:] == 'upNet':
                 # for uv map
                 raise NotImplementedError(
@@ -110,12 +130,13 @@ class DEBORNet(nn.Module):
             self.cameraenc = simpleMLP(
                 self.cameracfg.infeature, 
                 self.cameracfg.latent_shape,
-                self.cameracfg.shape)
+                layers = self.cameracfg.shape)
             if self.cameracfg.network == 'simple':
                 self.cameradec = simpleMLP(
                     self.cameracfg.latent_shape,
                     self.cameracfg.infeature,
-                    self.cameracfg.shape[::-1])
+                    inShape= self.options.inShape,
+                    layers = self.cameracfg.shape[::-1])
             elif self.cameracfg.network == 'cam':
                 self.SMPLdec = cameraNet( 
                     self.SMPLcfg.latent_shape, 
@@ -125,6 +146,8 @@ class DEBORNet(nn.Module):
                 raise ValueError(self.textcfg.network)
         
         # --------- image encoder and decoder ---------
+        # In tes2Shape, unet uses LeakyReLU in downsampling while use ReLU in 
+        # upsampling. This might not affect the result too much.
         self.imageenc = downNet()
         self.imagedec = upNet(
             infeature = 2048, 
@@ -178,7 +201,7 @@ class DEBORNet(nn.Module):
         indexMap = self.imagedec(codes, connections)
  
         prediction = {'indexMap'  : indexMap}
-        latentCode = {'latentCode': codes}   
+        latentCode = {'imgAggCode': aggCode}   
  
         if self.SMPLcfg.enable:
             assert SMPLParams is not None, \
