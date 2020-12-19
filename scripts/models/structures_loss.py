@@ -21,68 +21,70 @@ class latentCode_loss(nn.Module):
     representation to contain the information of the target field, such as
     pose, shape, displacements. 
     
-    Plane Unet and Graph net are easily overfitted to our dataset and the 
-    learned knowledge is turned out more like memory. 
+    Plane Unet and Graph net can easily overfit to our dataset while they
+    still underfit the testing set. This could indicate that the network 
+    does not learn things/distructions correctly. So the latent code loss 
+    is added.
     
     These losses are defined as:
         loss = || Enc(Img)[i:j,:] - Enc_x(X) ||, x can be smpl, disp, etc.
+
+    According to the structures, this class computes the loss for 
+    SMPLCode, dispCode, textCode, cameraCode and returns a dict of
+    
+    {'smplCode_loss', 'dispCode_loss', 'textCode_loss', 'cameraCode_loss'}
         
     '''
     def __init__(self, options):
         super(latentCode_loss, self).__init__()
         
         self.options = options
+        self.SMPLcfg = options.structureList.SMPL
+        self.dispcfg = options.structureList.disp
+        self.textcfg = options.structureList.text
+        self.cameracfg = options.structureList.camera
             
+        self.SMPLlossfunc = (nn.L1Loss(), nn.L2Loss())\
+                [self.SMPLcfg.latent_lossFunc == 'L2']
+        self.displossfunc = (nn.L1Loss(), nn.L2Loss())\
+                [self.dispcfg.latent_lossFunc == 'L2']
+        self.textlossfunc = (nn.L1Loss(), nn.L2Loss())\
+                [self.textcfg.latent_lossFunc == 'L2']
+        self.cameralossfunc = (nn.L1Loss(), nn.L2Loss())\
+                [self.cameracfg.latent_lossFunc == 'L2']
+        
     def forward(self, imgCode, SMPLCode = None, dispCode = None, 
                 textCode = None, cameraCode = None):
-        latCodeLoss = {}
-        if self.options.structureList.SMPL.enable:
-            assert SMPLCode is not None
-            if self.options.structureList.SMPL.latent_lossFunc == 'L1':
-                lossfunc = nn.L1Loss()
-            elif self.options.structureList.SMPL.latent_lossFunc == 'L2':
-                lossfunc = nn.L2Loss()
-                
-            target = imgCode[:,
-                             self.options.structureList.SMPL.latent_start:
-                             self.options.structureList.SMPL.latent_shape]
-            latCodeLoss['smplCode_loss'] = lossfunc(SMPLCode, target)
+        latCodeLoss = {'smplCode_loss': 0,
+                       'dispCode_loss': 0,
+                       'textCode_loss': 0,
+                       'cameraCode_loss' : 0}
         
-        if self.options.structureList.disp.enable:
+        if self.SMPLcfg.enable:
+            assert SMPLCode is not None                
+            target = imgCode[:,
+                             self.SMPLcfg.latent_start:
+                             self.SMPLcfg.latent_shape]
+            latCodeLoss['smplCode_loss'] = self.SMPLlossfunc(SMPLCode, target)
+        if self.dispcfg.enable:
             assert dispCode is not None
-            if self.options.structureList.disp.latent_lossFunc == 'L1':
-                lossfunc = nn.L1Loss()
-            elif self.options.structureList.disp.latent_lossFunc == 'L2':
-                lossfunc = nn.L2Loss()
-                
             target = imgCode[:,
-                             self.options.structureList.disp.latent_start:
-                             self.options.structureList.disp.latent_shape]
-            latCodeLoss['dispCode_loss'] = lossfunc(dispCode, target)
-        
-        if self.options.structureList.text.enable:
+                             self.dispcfg.latent_start:
+                             self.dispcfg.latent_shape]
+            latCodeLoss['dispCode_loss'] = self.displossfunc(dispCode, target)
+        if self.textcfg.enable:
             assert textCode is not None
-            if self.options.structureList.text.latent_lossFunc == 'L1':
-                lossfunc = nn.L1Loss()
-            elif self.options.structureList.text.latent_lossFunc == 'L2':
-                lossfunc = nn.L2Loss()
-                
             target = imgCode[:,
-                             self.options.structureList.text.latent_start:
-                             self.options.structureList.text.latent_shape]
-            latCodeLoss['textCode_loss'] = lossfunc(textCode, target)
-        
-        if self.options.structureList.camera.enable:
+                             self.textcfg.latent_start:
+                             self.textcfg.latent_shape]
+            latCodeLoss['textCode_loss'] = self.textlossfunc(textCode, target)
+        if self.cameracfg.enable:
             assert cameraCode is not None
-            if self.options.structureList.camera.latent_lossFunc == 'L1':
-                lossfunc = nn.L1Loss()
-            elif self.options.structureList.camera.latent_lossFunc == 'L2':
-                lossfunc = nn.L2Loss()
-                
             target = imgCode[:,
-                             self.options.structureList.camera.latent_start:
-                             self.options.structureList.camera.latent_shape]
-            latCodeLoss['cameraCode_loss'] = lossfunc(cameraCode, target)
+                             self.cameracfg.latent_start:
+                             self.cameracfg.latent_shape]
+            latCodeLoss['cameraCode_loss'] = \
+                self.cameralossfunc(cameraCode, target)
         
         return latCodeLoss
         
@@ -93,56 +95,59 @@ class supervision_loss(nn.Module):
     
     The loss is defined as:
         loss = || gt_x - Dec_x(Enc(img)[i:j,:]) ||, x can be smpl, disp, etc.
+    
+    Returns a dict of:
+    
+    {'smplSupv_loss', 'dispSupv_loss', 'textSupv_loss', 'cameraSupv_loss',
+     'indexMapSupv_loss'}
         
     '''
     def __init__(self, options):
         super(supervision_loss, self).__init__()
         self.options = options
+        self.SMPLcfg = options.structureList.SMPL
+        self.dispcfg = options.structureList.disp
+        self.textcfg = options.structureList.text
+        self.cameracfg = options.structureList.camera
+        self.indMapcfg = options.structureList.indexMap
+        
+        self.SMPLlossfunc = (nn.L1Loss(), nn.L2Loss())\
+                [self.SMPLcfg.supVis_lossFunc == 'L2']
+        self.displossfunc = (nn.L1Loss(), nn.L2Loss())\
+                [self.dispcfg.supVis_lossFunc == 'L2']
+        self.textlossfunc = (nn.L1Loss(), nn.L2Loss())\
+                [self.textcfg.supVis_lossFunc == 'L2']
+        self.cameralossfunc = (nn.L1Loss(), nn.L2Loss())\
+                [self.cameracfg.supVis_lossFunc == 'L2']
+        self.indMapLossfunc = (nn.L1Loss(), nn.L2Loss())\
+                [self.indMapcfg.supVis_lossFunc == 'L2']
         
     def forward(self, prediction, imageGT, SMPLGT = None, 
                 dispGT = None, textGT = None, cameraGT = None):
-        supVisLoss = {}
-        if self.options.structureList.SMPL.enable:
+        supVisLoss = {'smplSupv_loss': 0,
+                      'dispSupv_loss': 0,
+                      'textSupv_loss': 0,
+                      'cameraSupv_loss': 0,
+                      'indexMapSupv_loss': 0}
+        
+        if self.SMPLcfg.enable:
             assert SMPLGT is not None
-            if self.options.structureList.SMPL.supVis_lossFunc == 'L1':
-                lossfunc = nn.L1Loss()
-            elif self.options.structureList.SMPL.supVis_lossFunc == 'L2':
-                lossfunc = nn.L2Loss()
-            elif self.options.structureList.SMPL.supVis_lossFunc == 'cross_entropy':
-                raise NotImplementedError()
-            supVisLoss['smplSupv_loss'] = lossfunc(prediction['SMPL'], SMPLGT)
-        
-        if self.options.structureList.disp.enable:
+            supVisLoss['smplSupv_loss'] = \
+                self.SMPLlossfunc(prediction['SMPL'], SMPLGT)
+        if self.dispcfg.enable:
             assert dispGT is not None
-            if self.options.structureList.disp.supVis_lossFunc == 'L1':
-                lossfunc = nn.L1Loss()
-            elif self.options.structureList.disp.supVis_lossFunc == 'L2':
-                lossfunc = nn.L2Loss()
-            supVisLoss['dispSupv_loss'] = lossfunc(prediction['disp'], dispGT)
-        
-        if self.options.structureList.text.enable:
+            supVisLoss['dispSupv_loss'] = \
+                self.displossfunc(prediction['disp'], dispGT)
+        if self.textcfg.enable:
             assert textGT is not None
-            if self.options.structureList.text.supVis_lossFunc == 'L1':
-                lossfunc = nn.L1Loss()
-            elif self.options.structureList.text.supVis_lossFunc == 'L2':
-                lossfunc = nn.L2Loss()
-            supVisLoss['textSupv_loss'] = lossfunc(prediction['text'], textGT)
-        
-        if self.options.structureList.camera.enable:
+            supVisLoss['textSupv_loss'] = \
+                self.textlossfunc(prediction['text'], textGT)
+        if self.cameracfg.enable:
             assert cameraGT is not None
-            if self.options.structureList.camera.supVis_lossFunc == 'L1':
-                lossfunc = nn.L1Loss()
-            elif self.options.structureList.camera.supVis_lossFunc == 'L2':
-                lossfunc = nn.L2Loss()
             supVisLoss['cameraSupv_loss'] = \
-                lossfunc(prediction['camera'], cameraGT)
-
-        if self.options.structureList.indexMap.supVis_lossFunc == 'L1':
-            lossfunc = nn.L1Loss()
-        elif self.options.structureList.indexMap.supVis_lossFunc == 'L2':
-            lossfunc = nn.L2Loss()
+                self.cameralossfunc(prediction['camera'], cameraGT)
         supVisLoss['indexMapSupv_loss'] = \
-            lossfunc(prediction['indexMap'], imageGT)
+            self.indMapLossfunc(prediction['indexMap'], imageGT)
         
         return supVisLoss
         
@@ -151,45 +156,38 @@ class rendering_loss(nn.Module):
     To make sure that the predicted parameters are realistic and reasonable, 
     the rendering loss is added.
     
-    Currently, only the indexMap -> color loss is implemented.
+    Currently, only the projection loss is implemented.
     '''
     def __init__(self, options):
         super(self.indexMapSupv_loss, self).__init__()
         self.options = options
+        self.rendercfg = options.structureList.renderings
         
-        if options.structureList.rendering.proj_lossFunc == 'L1':
-            self.projLossFunc = nn.L1Loss()
-        elif options.structureList.rendering.proj_lossFunc == 'L2':
-            self.projLossFunc = nn.L2Loss()
-            
-        if options.structureList.rendering.render_lossFunc == 'L1':
-            self.renderLossFunc = nn.L1Loss()
-        elif options.structureList.rendering.render_lossFunc == 'L2':
-            self.renderLossFunc = nn.L2Loss()
+        self.projLossFunc = \
+            (nn.L1Loss(), nn.L2Loss())[self.rendercfg.proj_lossFunc == 'L2']
+        self.renderLossFunc = \
+            (nn.L1Loss(), nn.L2Loss())[self.rendercfg.render_lossFunc == 'L2']
         
-        pathobje = pjn('/'.join(options.smpl_model_path.split('/')[:-1]), 
-                       'text_uv_coor_smpl.obj')
-        _, self.faces, _, _ = read_Obj(pathobje)
-        
+        # prepare data for projection
+        _, self.faces, _, _ = read_Obj(options.smpl_objfile_path)
         self.faces = torch.tensor(self.faces)[None]
         self.SMPLmodel = SMPL(options.smpl_model_path, 'cuda')
         self.persCamera= camera()
-        self.numSamples= 6890*options.structureList.rendering.sampleRate
+        self.numSamples= 6890*self.rendercfg.sampleRate
         
     def forward(self, image, predictions, GT):
-        
-        renderLoss = {'projLoss': 0,
-                      'textLoss': 0}    # use after roughly convering
+
         batchSize= image.shape[0]
-        
         SMPLPred = predictions['SMPL']
         dispPred = predictions['disp']
-        # indMapPred = predictions['indexMap']
         cameraPred = predictions['camera']
         
-        predBody = self.SMPLmodel(SMPLPred[:, :72], 
-                                  SMPLPred[:, 72:82], 
-                                  SMPLPred[:, 82:85])
+        raise NotImplementedError('change to 6d representation')
+        predBody = self.SMPLmodel(
+            SMPLPred[:, :72], 
+            SMPLPred[:, 72:82], 
+            SMPLPred[:, 82:85])
+        
         predPixels, _ = self.persCamera(
             fx=cameraPred[:,0], 
             fy=cameraPred[:,1],  
@@ -201,6 +199,7 @@ class rendering_loss(nn.Module):
             faces=self.faces.repeat_interleave(batchSize, dim = 0), 
             visibilityOn = False)
         
+        raise NotImplementedError('change to 6d representation')
         GTBody = self.SMPLmodel(GT['SMPL'][:, :72], 
                                 GT['SMPL'][:, 72:82], 
                                 GT['SMPL'][:, 82:85])
@@ -218,6 +217,9 @@ class rendering_loss(nn.Module):
         indice = random.sample(range(6890), self.numSamples)
         sampleInd = torch.tensor(indice)
         
+        # use textloss after roughly converge    
+        renderLoss = {'projLoss': 0,
+                      'textLoss': 0}        
         for cnt in range(batchSize):        
             renderLoss['projLoss'] = \
                 renderLoss['projLoss'] + \
