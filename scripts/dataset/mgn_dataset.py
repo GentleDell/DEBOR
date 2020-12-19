@@ -17,7 +17,8 @@ import numpy as np
 import cv2
 
 from models import camera as perspCamera
-from models.geometric_layers import rodrigues
+from models.geometric_layers import axisAngle_to_rotationMatrix
+from models.geometric_layers import axisAngle_to_Rot6d, rot6d_to_axisAngle 
 from utils.vis_util import read_Obj
 from utils.mesh_util import generateSMPLmesh
 from utils.render_util import camera as cameraClass
@@ -124,10 +125,12 @@ class BaseDataset(Dataset):
             self.meshGT.append({'displacement': displace,
                                 'texture': texture})
             
-            # read smpl parameters
+            # read smpl parameters 
+            #     The 6D rotation representation is used here.
             registration = pickle.load(open( pjn(obj, 'registration.pkl'), 'rb'),  encoding='iso-8859-1')
+            jointsRot6d  = axisAngle_to_Rot6d(torch.tensor(registration['pose'].reshape([-1, 3])))
             self.smplGTParas.append({'betas': registration['betas'],
-                                     'pose':  registration['pose'], 
+                                     'pose':  jointsRot6d, 
                                      'trans': registration['trans']})
             
             # read and resize UV texture map same for the segmentation 
@@ -160,7 +163,7 @@ class BaseDataset(Dataset):
         # img = background_replacing(img, bgimg)
         # plt.imshow(img/255)
         
-        # self.getIndicesMap(1848, camera = None, debug=True)
+        # self.getIndicesMap(1994, camera = None)
               
     def indicesToCode(self, indices):
         '''
@@ -199,31 +202,29 @@ class BaseDataset(Dataset):
         indexMap
 
         '''
-        pathRegistr = pjn(self.obj_dir[index//self.options.img_per_object],
-                          'registration.pkl')
+        SMPLparams = self.smplGTParas[index//self.options.img_per_object]
+        jointsPose = rot6d_to_axisAngle(SMPLparams['pose']).flatten()
         
         # load SMPL parameters and model; transform vertices and joints.
-        registration = pickle.load(open(pathRegistr, 'rb'),  encoding='iso-8859-1')
         SMPLvert_posed, joints = generateSMPLmesh(
-                self.options.smpl_model_path, registration['pose'], registration['betas'], 
-                registration['trans'], asTensor=True)
+                self.options.smpl_model_path, jointsPose, SMPLparams['betas'], 
+                SMPLparams['trans'], asTensor=True)
         
         # read displacements
         disp = torch.Tensor(
             self.meshGT[ index//self.options.img_per_object ]['displacement'])
         
         # # debug
-        # if debug:
-        #     flip,pn,rot,sc = self.augm_params()
-        #     center = self.center[index]
-        #     scale = self.scale[index]
-        #     imgname = self.imgname[index]
-        #     img = cv2.imread(imgname)[:,:,::-1].copy().astype(np.float32)
-        #     img = self.rgb_processing(img, center, sc*scale, rot, flip, pn)
-        #     img = torch.from_numpy(img).float()
-        #     camera = self.camera_trans(
-        #         img, center, sc*scale, rot, flip, self.camera[index], self.options)
-        #     indexMap = img.permute(1,2,0).numpy()
+        # flip,pn,rot,sc = self.augm_params()
+        # center = self.center[index]
+        # scale = self.scale[index]
+        # imgname = self.imgname[index]
+        # img = cv2.imread(imgname)[:,:,::-1].copy().astype(np.float32)
+        # img = self.rgb_processing(img, center, sc*scale, rot, flip, pn)
+        # img = torch.from_numpy(img).float()
+        # camera = self.camera_trans(
+        #     img, center, sc*scale, rot, flip, self.camera[index], self.options)
+        # indexMap = img.permute(1,2,0).numpy()
         
         # project the GT vertice to the image plane to get the coordinates
         # of the projected pixels and visibility.
@@ -344,7 +345,8 @@ class BaseDataset(Dataset):
                 
         # simulate centered image rotation as camera rotation
         # the rotation direction should be the inverse one so we add a minus.
-        rotMat = rodrigues(torch.Tensor([[0,0,-rot*np.pi/180]]))[0]
+        rotMat = axisAngle_to_rotationMatrix(
+            torch.Tensor([[0,0,-rot*np.pi/180]]))[0]
         R = rotMat@R
         t = rotMat@t[:,None]
         
@@ -396,6 +398,7 @@ class BaseDataset(Dataset):
         item['smplGT'] = self.smplGTParas[ index//self.options.img_per_object ]
         # item['UVmapGT']= self.UVmapGT[ index//self.options.img_per_object ]    # no need to touch the GT
         
+        raise NotImplementedError('convert to 6d representation')
         item['cameraGT'] = self.camera_trans(
             img, center, sc*scale, rot, flip, self.camera[index], self.options
             )
