@@ -18,7 +18,9 @@ structure_options = {
         'indexMap': {
             'network': 'simple',    # or poseNet
             'supVis_lossFunc' : 'L1',   # ('L1', 'L2') 
-            'batch_lossFunc'  : 'L2'    # only support L2 yet
+            'batch_lossFunc'  : 'L2',   # only support L2 yet
+            
+            'weight' : 0.1
             },
         
         'SMPL': {
@@ -31,12 +33,18 @@ structure_options = {
             
             'latent_lossFunc' : 'L2',   # ('L1', 'L2', 'cross_entropy') 
             'supVis_lossFunc' : 'L1',   # ('L1', 'L2') 
-            'batch_lossFunc'  : 'L2'    # only support L2 yet
+            'batch_lossFunc'  : 'L2',   # only support L2 yet
+            
+            'weight' : {
+                'latentCode'  : 0.001,
+                'supervision' : 0.1
+                }, 
+            
             },
             
         'disp': {
             'enable': True,
-            'latent_shape': 512,
+            'latent_shape': 384,
             'latent_start': 512,
             'infeature': 20670,     # 6890x3, follow the paper
             'network': 'simple',    # or dispGraphNet
@@ -44,7 +52,12 @@ structure_options = {
             
             'latent_lossFunc' : 'L2',   # ('L1', 'L2', 'cross_entropy') 
             'supVis_lossFunc' : 'L1',   # ('L1', 'L2') 
-            'batch_lossFunc'  : 'L2'    # only support L2 yet
+            'batch_lossFunc'  : 'L2',   # only support L2 yet
+            
+            'weight' : {
+                'latentCode'  : 0.001,
+                'supervision' : 0.1
+                }, 
             },
         
         'text': {
@@ -62,15 +75,20 @@ structure_options = {
         
         'camera':{
             'enable': True,
-            'latent_shape': 512,
-            'latent_start': 1536,
+            'latent_shape': 128,
+            'latent_start': 768,
             'infeature': 3,     # 6890x3, follow the paper
             'network': 'simple',    # or cameraNet
             'shape': [16, 32, 64, 128],    # shape for MLP
             
             'latent_lossFunc' : 'L2',   # ('L1', 'L2', 'cross_entropy') 
             'supVis_lossFunc' : 'L1',   # ('L1', 'L2') 
-            'batch_lossFunc'  : 'L2'    # only support L2 yet
+            'batch_lossFunc'  : 'L2',    # only support L2 yet
+            
+            'weight' : {
+                'latentCode'  : 0.001,
+                'supervision' : 0.1
+                }, 
             },
         
         'rendering':{
@@ -78,11 +96,16 @@ structure_options = {
             'downsample' : True,        # fit a subset to avoid local minima
             'sampleRate' : 0.1,         # the subset rate
             'proj_lossFunc'  : 'L2',    # ('L1', 'L2') 
-            'render_lossFunc': 'L1'     # ('L1', 'L2') 
+            'render_lossFunc': 'L1',    # ('L1', 'L2') 
+            
+            'weight' : 0.001
             }
         },
     
-    'graph_matrics_path' : '/home/zhantao/Documents/masterProject/DEBOR/body_model/mesh_downsampling.npz',
-    'smpl_model_path' : '/home/zhantao/Documents/masterProject/DEBOR/body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl'
-    
+    'graph_matrics_path' : 
+        '/home/zhantao/Documents/masterProject/DEBOR/body_model/mesh_downsampling.npz',
+    'smpl_model_path' : 
+        '/home/zhantao/Documents/masterProject/DEBOR/body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl',
+    'smpl_objfile_path' :
+        '/home/zhantao/Documents/masterProject/DEBOR/body_model/text_uv_coor_smpl.obj'
      }

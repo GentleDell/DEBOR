@@ -5,3 +5,4 @@ from .sizer_nn import res50_plus_Dec, Discriminator_size
 from .unet import UNet
 from .loss import lossfunc as Loss
 from .camera import cameraPerspective as camera
+from .structures import DEBORNet

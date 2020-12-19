@@ -11,7 +11,7 @@ try:
 except ImportError:
     import pickle
 
-from .geometric_layers import rodrigues
+from .geometric_layers import axisAngle_to_rotationMatrix
 
 class SMPL(nn.Module):
 
@@ -70,7 +70,7 @@ class SMPL(nn.Module):
         # input it rotmat: (bs,72)
         elif pose.ndimension() == 2:
             pose_cube = pose.view(-1, 3) # (batch_size * 24, 1, 3)
-            R = rodrigues(pose_cube).view(batch_size, 24, 3, 3)
+            R = axisAngle_to_rotationMatrix(pose_cube).view(batch_size, 24, 3, 3)
             R = R.view(batch_size, 24, 3, 3)
         I_cube = torch.eye(3)[None, None, :].to(device)
         # I_cube = torch.eye(3)[None, None, :].expand(theta.shape[0], R.shape[1]-1, -1, -1)
