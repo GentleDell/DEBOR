@@ -14,7 +14,7 @@ import torch.nn as nn
 
 from .camera import cameraPerspective as camera
 from .smpl import SMPL
-from .geometric_layers import rot6d_to_axisAngle
+from .geometric_layers import rot6d_to_axisAngle, rot6d_to_rotmat
 from utils.vis_util import read_Obj
 
 class latentCode_loss(nn.Module):
@@ -68,38 +68,41 @@ class latentCode_loss(nn.Module):
         self.cameralossfunc = (nn.L1Loss(), nn.MSELoss())\
                 [self.cameracfg.latent_lossFunc == 'L2']
         
-    def forward(self, imgCode, SMPLCode = None, dispCode = None, 
-                textCode = None, cameraCode = None):
+    def forward(self, latentCode):
         latCodeLoss = {'smplCode_loss': 0,
                        'dispCode_loss': 0,
                        'textCode_loss': 0,
                        'cameraCode_loss' : 0}
-        
+
+        imgCode = latentCode['imgAggCode']
         if self.SMPLcfg.enable:
-            assert SMPLCode is not None                
+            assert latentCode['SMPL'] is not None                
             target = imgCode[:,
-                             self.SMPLcfg.latent_start:
-                             self.SMPLcfg.latent_shape]
-            latCodeLoss['smplCode_loss'] = self.SMPLlossfunc(SMPLCode, target)
+                    self.SMPLcfg.latent_start:
+                    self.SMPLcfg.latent_start + self.SMPLcfg.latent_shape]
+            latCodeLoss['smplCode_loss'] = \
+                self.SMPLlossfunc(latentCode['SMPL'], target)
         if self.dispcfg.enable:
-            assert dispCode is not None
+            assert latentCode['disp'] is not None
             target = imgCode[:,
-                             self.dispcfg.latent_start:
-                             self.dispcfg.latent_shape]
-            latCodeLoss['dispCode_loss'] = self.displossfunc(dispCode, target)
+                    self.dispcfg.latent_start:
+                    self.dispcfg.latent_start + self.dispcfg.latent_shape]
+            latCodeLoss['dispCode_loss'] = \
+                self.displossfunc(latentCode['disp'], target)
         if self.textcfg.enable:
-            assert textCode is not None
+            assert latentCode['text'] is not None
             target = imgCode[:,
-                             self.textcfg.latent_start:
-                             self.textcfg.latent_shape]
-            latCodeLoss['textCode_loss'] = self.textlossfunc(textCode, target)
+                    self.textcfg.latent_start:
+                    self.textcfg.latent_start + self.textcfg.latent_shape]
+            latCodeLoss['textCode_loss'] = \
+                self.textlossfunc(latentCode['text'], target)
         if self.cameracfg.enable:
-            assert cameraCode is not None
+            assert latentCode['camera'] is not None
             target = imgCode[:,
-                             self.cameracfg.latent_start:
-                             self.cameracfg.latent_shape]
+                    self.cameracfg.latent_start:
+                    self.cameracfg.latent_start + self.cameracfg.latent_shape]
             latCodeLoss['cameraCode_loss'] = \
-                self.cameralossfunc(cameraCode, target)
+                self.cameralossfunc(latentCode['camera'], target)
         
         return latCodeLoss
         
@@ -153,32 +156,35 @@ class supervision_loss(nn.Module):
         self.indMapLossfunc = (nn.L1Loss(), nn.MSELoss())\
                 [self.indMapcfg.supVis_lossFunc == 'L2']
         
-    def forward(self, prediction, imageGT, SMPLGT = None, 
-                dispGT = None, textGT = None, cameraGT = None):
+    def forward(self, prediction, GT):
         supVisLoss = {'smplSupv_loss': 0,
                       'dispSupv_loss': 0,
                       'textSupv_loss': 0,
                       'cameraSupv_loss': 0,
                       'indexMapSupv_loss': 0}
-        
         if self.SMPLcfg.enable:
-            assert SMPLGT is not None
+            assert GT['SMPL'] is not None
             supVisLoss['smplSupv_loss'] = \
-                self.SMPLlossfunc(prediction['SMPL'], SMPLGT)
+                self.SMPLlossfunc(prediction['SMPL'], GT['SMPL'])
         if self.dispcfg.enable:
-            assert dispGT is not None
+            assert GT['disp'] is not None
             supVisLoss['dispSupv_loss'] = \
-                self.displossfunc(prediction['disp'], dispGT)
+                self.displossfunc(prediction['disp'], GT['disp'])
         if self.textcfg.enable:
-            assert textGT is not None
+            assert GT['text'] is not None
             supVisLoss['textSupv_loss'] = \
-                self.textlossfunc(prediction['text'], textGT)
+                self.textlossfunc(prediction['text'], GT['text'])
         if self.cameracfg.enable:
-            assert cameraGT is not None
+            assert GT['camera'] is not None
             supVisLoss['cameraSupv_loss'] = \
-                self.cameralossfunc(prediction['camera'], cameraGT)
+                self.cameralossfunc(
+                    prediction['camera'],
+                    GT['camera']['f_rot'].squeeze(dim = 1).float())
+        
         supVisLoss['indexMapSupv_loss'] = \
-            self.indMapLossfunc(prediction['indexMap'], imageGT)
+            self.indMapLossfunc(
+                prediction['indexMap'], 
+                GT['indexMap'].permute(0,3,1,2))
         
         return supVisLoss
         
@@ -212,44 +218,49 @@ class rendering_loss(nn.Module):
     def forward(self, image, predictions, GT):
 
         batchSize= image.shape[0]
+        imageSize= image.shape[2]
+        
         SMPLPred = predictions['SMPL']
-        dispPred = predictions['disp']
+        dispPred = predictions['disp'].reshape(batchSize, -1, 3)
         cameraPred = predictions['camera']
         
         # convert to axis angle
-        jointsRot= rot6d_to_axisAngle(SMPLPred[:, :144].reshape(-1, 6))
+        jointsRot= rot6d_to_axisAngle(
+            SMPLPred[:, :144].view(batchSize, -1, 6))
         predBody = self.SMPLmodel(
-            jointsRot, 
+            jointsRot.reshape([batchSize, -1]), 
             SMPLPred[:, 144:154], 
             SMPLPred[:, 154:157])
-        
         predPixels, _ = self.persCamera(
-            fx=cameraPred[:,0], 
-            fy=cameraPred[:,1],  
-            cx=cameraPred[:,2], 
-            cy=cameraPred[:,3], 
-            rotation=cameraPred[:,4:13], 
-            translation=cameraPred[:,13:], 
-            points=predBody + dispPred, 
-            faces=self.faces.repeat_interleave(batchSize, dim = 0), 
+            fx = cameraPred[:,0].double(), 
+            fy = cameraPred[:,0].double(),  
+            cx = torch.ones(batchSize)*imageSize/2, 
+            cy = torch.ones(batchSize)*imageSize/2, 
+            rotation = rot6d_to_rotmat(cameraPred[:,1:7]).double(), 
+            translation = GT['camera']['t'][:,None,:].double(), 
+            points= (predBody + dispPred).double(), 
+            faces = self.faces.repeat_interleave(batchSize, dim = 0).double(), 
             visibilityOn = False)
         
-        raise NotImplementedError('change to 6d representation')
-        GTBody = self.SMPLmodel(GT['SMPL'][:, :72], 
-                                GT['SMPL'][:, 72:82], 
-                                GT['SMPL'][:, 82:85])
+        GTjoint= rot6d_to_axisAngle(
+            GT['SMPL'][:, :144].view(batchSize, -1, 6))
+        GTBody = self.SMPLmodel(
+            GTjoint.reshape([batchSize, -1]), 
+            GT['SMPL'][:, 144:154], 
+            GT['SMPL'][:, 154:157])
         GTPixels, _ = self.persCamera(
-            fx=GT['camera'][:,0], 
-            fy=GT['camera'][:,1],  
-            cx=GT['camera'][:,2], 
-            cy=GT['camera'][:,3], 
-            rotation=GT['camera'][:,4:13], 
-            translation=GT['camera'][:,13:], 
-            points=GTBody+ GT['disp'], 
-            faces=self.faces.repeat_interleave(batchSize, dim = 0), 
+            fx = GT['camera']['f_rot'][:,0,0], 
+            fy = GT['camera']['f_rot'][:,0,0],  
+            cx = torch.ones(batchSize)*imageSize/2,
+            cy = torch.ones(batchSize)*imageSize/2,
+            rotation = \
+                rot6d_to_rotmat(GT['camera']['f_rot'][:,0,1:]).double(), 
+            translation = GT['camera']['t'][:,None,:].double(),
+            points= (GTBody + GT['disp'].reshape(batchSize, -1, 3)).double(), 
+            faces = self.faces.repeat_interleave(batchSize, dim = 0).double(), 
             visibilityOn = False)
         
-        indice = random.sample(range(6890), self.numSamples)
+        indice = random.sample(range(6890), int(self.numSamples))
         sampleInd = torch.tensor(indice)
         
         # use textloss after roughly converge    
@@ -259,9 +270,8 @@ class rendering_loss(nn.Module):
             renderLoss['projLoss'] = \
                 renderLoss['projLoss'] + \
                     self.projLossFunc(
-                        predPixels[:, sampleInd],
-                        GTPixels[:, sampleInd])
-        
+                        torch.stack(predPixels, dim=0)[:, sampleInd,:],
+                        torch.stack(GTPixels  , dim=0)[:, sampleInd,:] )
         return renderLoss
         
 class batch_loss(nn.Module):
@@ -339,3 +349,4 @@ class batch_loss(nn.Module):
                 # not support camera and indexMap yet
         
         return batchLoss
+    
