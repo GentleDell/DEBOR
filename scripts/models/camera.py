@@ -119,8 +119,8 @@ class cameraPerspective(nn.Module):
         batch_size = points.shape[0]       
         
         # visibility check
+        visibility = []
         if visibilityOn:
-            visibility = []
             for cnt in range(batch_size):
                 trans = self.R_vertx2blobj[0].T@\
                             (-rotation[cnt].T)@\
@@ -144,10 +144,10 @@ class cameraPerspective(nn.Module):
         with torch.no_grad():
             camera_mat = torch.zeros([batch_size, 3, 3], device=points.device).double()
 
-            camera_mat[:, 0, 0] = fx[:,0,0]
-            camera_mat[:, 1, 1] = fy[:,0,0]
-            camera_mat[:, 0, 2] = cx[:,0,0]
-            camera_mat[:, 1, 2] = cy[:,0,0]    
+            camera_mat[:, 0, 0] = fx
+            camera_mat[:, 1, 1] = fy
+            camera_mat[:, 0, 2] = cx
+            camera_mat[:, 1, 2] = cy   
             camera_mat[:, 2, 2] = 1 
 
         # project vertices to image

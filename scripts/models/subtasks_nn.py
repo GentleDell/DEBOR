@@ -128,7 +128,7 @@ class downNet(nn.Module):
         dn = self.dn(d6)    # 1x1x2048 for latent loss
         dn = dn.view(dn.shape[0], 2048, -1)
         
-        return d6, [d4, d5], dn
+        return d6, [d4, d5], dn.squeeze()
     
 class upNet(nn.Module):
     def __init__(self, dropRate: float = 0, batchNormalization: bool = True,
@@ -146,11 +146,13 @@ class upNet(nn.Module):
                                 dropout_rate=dropRate, bn=batchNormalization)
         self.u2 = upsampleLayer(int(infeature/2) + int(infeature/2), int(infeature/4), kernelSize-1,     
                                 paddings=0, dropout_rate=dropRate, bn=batchNormalization) 
-        self.u3 = upsampleLayer(int(infeature/4) + int(infeature/4), base_depth*4, kernelSize-1,      
+        self.u3 = upsampleLayer(int(infeature/4) + int(infeature/4), base_depth*8, kernelSize-1,      
                                 dropout_rate=dropRate, bn=batchNormalization)
-        self.u4 = upsampleLayer(base_depth*4, base_depth*2, kernelSize-1,
+        self.u4 = upsampleLayer(base_depth*8, base_depth*4, kernelSize-1,
                                 dropout_rate=dropRate, bn=batchNormalization)
-        self.u5 = upsampleLayer(base_depth*2, base_depth  , kernelSize-1,                    
+        self.u5 = upsampleLayer(base_depth*4, base_depth*2  , kernelSize-1,                    
+                                dropout_rate=dropRate, bn=batchNormalization)
+        self.u6 = upsampleLayer(base_depth*2, base_depth    , kernelSize-1,                    
                                 dropout_rate=dropRate, bn=batchNormalization)
         
         self.outLayer = nn.Conv2d(base_depth, outdim, outkernelSize, padding=1)
@@ -159,13 +161,14 @@ class upNet(nn.Module):
         
         assert len(layers) == 2, 'only keep the lowest 2 layers'
         
-        u1 = self.u1(x , layers[1])     # 14x14x2048
-        u2 = self.u2(u1, layers[0])     # 28x28x1024
-        u3 = self.u3(u2)                # 56x56x256
-        u4 = self.u4(u3)                # 112x112x128
-        u5 = self.u5(u4)                # 224x224x64
-            
-        out = self.outLayer(u5)         # 224x224xoutdim
+        u1 = self.u1(x , layers[1])     # 8x8x2048
+        u2 = self.u2(u1, layers[0])     # 14x14x1024
+        u3 = self.u3(u2)                # 28x28x512
+        u4 = self.u4(u3)                # 56x56x256
+        u5 = self.u5(u4)                # 112x112x128
+        u6 = self.u6(u5)                # 224x224x64
+        
+        out = self.outLayer(u6)         # 112x112xoutdim
         
         return out
 

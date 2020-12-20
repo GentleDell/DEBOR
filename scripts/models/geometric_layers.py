@@ -55,9 +55,11 @@ def rotationMatrix_to_axisAngle(rotation_matrix):
         >>> output = tgm.rotation_matrix_to_angle_axis(input)  # Nx3
     """
     
+    device = rotation_matrix.device
+    
     # expand shape
     if rotation_matrix.shape[2] == 3:
-        expandRMat  = torch.zeros([rotation_matrix.shape[0],3,4])
+        expandRMat  = torch.zeros([rotation_matrix.shape[0],3,4]).to(device)
         expandRMat[:,:,:-1] = rotation_matrix
         rotation_matrix = expandRMat
     
@@ -273,7 +275,7 @@ def rot6d_to_rotmat(x):
     Output:
         (B,3,3) Batch of corresponding rotation matrices
     """
-    x = x.view(-1,3,2)
+    x = x.reshape(-1,3,2)
 
     # Normalize the first vector
     b1 = F.normalize(x[:, :, 0], dim=1, eps=1e-6)
