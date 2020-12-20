@@ -91,21 +91,25 @@ class trainer(BaseTrain):
         """Training step."""
         self.model.train()
  
-        # covert shape
-        smplGT = torch.cat([input_batch['smplGT']['betas'],
-                            input_batch['smplGT']['pose'].reshape(-1, 144)],
-                           dim = 1)
- 
+        # prepare GT data
+        smplGT = torch.cat([
+            input_batch['smplGT']['betas'],
+            input_batch['smplGT']['pose'].reshape(-1, 144),
+            input_batch['smplGT']['trans']],
+            dim = 1).float()
+        dispGT = input_batch['meshGT']['displacement'].reshape([-1, 20670])
+        GT = {'img' : input_batch['img'],
+              'SMPL': smplGT,
+              'disp': dispGT,
+              'text': input_batch['meshGT']['texture'],
+              'camera': input_batch['cameraGT'],
+              'indexMap': input_batch['indexMapGT']}
+        
         # forward pass
-        pred, codes = self.model(
-            input_batch['img'], 
-            smplGT,
-            input_batch['meshGT']['displacement'],
-            input_batch['meshGT']['texture'],
-            input_batch['cameraGT'])
+        pred, codes = self.model(input_batch['img'], GT)
+        
         # loss
-        loss = self.model.computeLoss(
-            input_batch['img'], pred, input_batch, codes)
+        loss = self.model.computeLoss(pred, codes, GT)
         
         out_args = loss
         out_args['prediction'] = pred 
