@@ -60,7 +60,6 @@ class DEBORNet(nn.Module):
                 self.SMPLdec = simpleMLP(
                     self.SMPLcfg.latent_shape,
                     self.SMPLcfg.infeature,
-                    inShape= self.options.inShape,
                     layers = self.SMPLcfg.shape[::-1])
             elif self.SMPLcfg.network == 'poseNet':
                 self.SMPLdec = poseNet( 
@@ -80,7 +79,6 @@ class DEBORNet(nn.Module):
                 self.dispdec = simpleMLP(
                     self.dispcfg.latent_shape,
                     self.dispcfg.infeature,
-                    inShape= self.options.inShape,
                     layers = self.dispcfg.shape[::-1])
             elif self.dispcfg.network == 'dispGraphNet':
                 assert A is not None and ref_vertices is not None, \
@@ -114,14 +112,13 @@ class DEBORNet(nn.Module):
                 self.textdec = simpleMLP(
                     self.textcfg.latent_shape,
                     self.textcfg.infeature, 
-                    inShape= self.options.inShape,
                     layers = self.textcfg.shape[::-1])
             elif self.textcfg.network[-5:] == 'upNet':
                 # for uv map
                 raise NotImplementedError(
                     "might be harmful since uvmap is constant " +
                     "under different body, disp and camera.")
-                self.textenc = downNet()
+                self.textenc = downNet()    # force the encoder to be downNet
                 self.textdec = upNet(
                     self.SMPLcfg.latent_shape,
                     inShape = self.options.inShape, 
@@ -139,7 +136,6 @@ class DEBORNet(nn.Module):
                 self.cameradec = simpleMLP(
                     self.cameracfg.latent_shape,
                     self.cameracfg.infeature,
-                    inShape= self.options.inShape,
                     layers = self.cameracfg.shape[::-1])
             elif self.cameracfg.network == 'cam':
                 self.SMPLdec = cameraNet( 
@@ -150,18 +146,16 @@ class DEBORNet(nn.Module):
                 raise ValueError(self.textcfg.network)
         
         # --------- image encoder and decoder ---------
-        # In tes2Shape, unet uses LeakyReLU in downsampling while use ReLU in 
+        # In tex2Shape, unet uses LeakyReLU in downsampling while use ReLU in 
         # upsampling. This might not affect the result too much.
         self.imageenc = downNet()
-        self.imagedec = upNet(
-            infeature = 2048, 
-            inShape = self.options.inShape, 
-            outdim = 3)
+        self.imagedec = upNet(infeature = 2048, outdim = 3)
         
         # --------- loss for the structure ---------
         self.latent_loss = latentCode_loss(structure_options)
         self.supVis_loss = supervision_loss(structure_options)
-        self.render_loss = rendering_loss(structure_options)
+        if self.rendercfg.enable:
+            self.render_loss = rendering_loss(structure_options)
         
         # TODO
         # self.interBatch_loss Try it later
@@ -169,7 +163,6 @@ class DEBORNet(nn.Module):
     def computeLoss(self, pred, latentCode, GT):
         latentCodeLoss = self.latent_loss(latentCode)
         superviseLoss  = self.supVis_loss(pred, GT)
-        renderingLoss  = self.render_loss(GT['img'], pred, GT)
         
         latCodeLossSum = \
             self.SMPLcfg.weight['latentCode']\
@@ -192,10 +185,16 @@ class DEBORNet(nn.Module):
             self.cameracfg.weight['supervision']\
                 *superviseLoss['cameraSupv_loss']
         
-        renderLossSum = \
-            self.rendercfg.weight['proj_weight']*renderingLoss['projLoss'] +\
-            self.rendercfg.weight['render_weight']*renderingLoss['textLoss']
-        
+        if self.rendercfg.enable:
+            renderingLoss  = self.render_loss(GT['img'], pred, GT)
+            renderLossSum = \
+                self.rendercfg.weight['proj_weight']\
+                    *renderingLoss['projLoss'] +\
+                self.rendercfg.weight['render_weight']\
+                    *renderingLoss['textLoss']
+        else:
+            renderLossSum, renderingLoss = 0, 0
+            
         outLoss = {'loss': supVisLossSum + latCodeLossSum + renderLossSum,
                    'supVisLoss': supVisLossSum,
                    'latCodeLoss': latCodeLossSum,

@@ -43,7 +43,7 @@ structure_options = {
             },
             
         'disp': {
-            'enable': True,
+            'enable': False,
             'latent_shape': 384,
             'latent_start': 512,
             'infeature': 20670,     # 6890x3, follow the paper
@@ -79,7 +79,7 @@ structure_options = {
             },
         
         'camera':{
-            'enable': True,
+            'enable': False,
             'latent_shape': 128,
             'latent_start': 896,
             'infeature': 7,     
@@ -97,7 +97,7 @@ structure_options = {
             },
         
         'rendering':{
-            'enable': True,
+            'enable': False,
             'downsample' : True,        # fit a subset to avoid local minima
             'sampleRate' : 0.1,         # the subset rate
             'proj_lossFunc'  : 'L1',    # ('L1', 'L2') 

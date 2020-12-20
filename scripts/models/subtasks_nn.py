@@ -22,7 +22,7 @@ class simpleMLP(nn.Module):
         Instant recovery of shape from spectrum via latentspace connections
         https://github.com/riccardomarin/InstantRecoveryFromSpectrum
     '''
-    def __init__(self, infeature, outfeature, inShape = None,
+    def __init__(self, infeature, outfeature,
                  layers = [80, 160, 320, 640, 320, 160, 80],
                  bactchNormOn = True, actFunc = 'selu'):
         super(simpleMLP, self).__init__()
@@ -132,7 +132,7 @@ class downNet(nn.Module):
     
 class upNet(nn.Module):
     def __init__(self, dropRate: float = 0, batchNormalization: bool = True,
-                 infeature = 2048, inShape = 7, outdim = 3, outkernelSize = 3,
+                 infeature = 2048, outdim = 3, outkernelSize = 3,
                  conditionOn = False):
         super(upNet, self).__init__()
         
