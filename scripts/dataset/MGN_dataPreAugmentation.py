@@ -172,7 +172,7 @@ class MGN_subjectPreAugmentation(object):
                             segmentationPath=pjn(path, 'segmentation.png'),
                             triangle_UVs=smpl_text_uv_coord[smpl_text_uv_mesh.flatten()],
                             use_text=True)    
-                        o3d.visualization.draw_geometries([dressed_body])
+                        # o3d.visualization.draw_geometries([dressed_body])
                         
                         
                         # create new folder for the new subject
@@ -215,3 +215,4 @@ if __name__ == "__main__":
     pathmodel = '/home/zhantao/Documents/masterProject/DEBOR/body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl'
     path = '../../datasets/MGN_brighter'
     mgn  = MGN_subjectPreAugmentation(path, pathmodel)
+    # mgn.augment_MGN()

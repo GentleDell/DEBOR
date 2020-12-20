@@ -27,7 +27,8 @@ from utils import Mesh, BaseTrain, CheckpointDataLoader
 from utils.mesh_util import create_fullO3DMesh
 from models import SMPL, DEBORNet
 from models.structures_options import structure_options
-from train_cfg import TrainOptions
+from models.geometric_layers import rot6d_to_axisAngle, rot6d_to_rotmat
+from train_structure_cfg import TrainOptions
 
 # ignore all alert from open3d except error messages
 o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
@@ -52,13 +53,11 @@ class trainer(BaseTrain):
                     shuffle     = False)
 
         # Create Mesh (graph) object
-        if self.structuresCfg.structureList\
-            ['disp']['network'] == 'dispGraphNet':
-            self.mesh = Mesh(self.options, self.options.num_downsampling)
-            self.faces = torch.cat( self.options.batch_size * [
-                                    self.mesh.faces.to(self.device)[None]
-                                    ], dim = 0 )
-            self.faces = self.faces.type(torch.LongTensor).to(self.device)
+        self.mesh = Mesh(self.options, self.options.num_downsampling)
+        self.faces = torch.cat( self.options.batch_size * [
+                                self.mesh.faces.to(self.device)[None]
+                                ], dim = 0 )
+        self.faces = self.faces.type(torch.LongTensor).to(self.device)
         
         # Create SMPL mesh object and edges
         self.smpl = SMPL(self.options.smpl_model_path, self.device)
@@ -85,7 +84,6 @@ class trainer(BaseTrain):
         # Pack models and optimizers in a dict - necessary for checkpointing
         self.models_dict = {self.options.model: self.model}
         self.optimizers_dict = {'optimizer': self.optimizer}
-
             
     def train_step(self, input_batch):
         """Training step."""
@@ -94,7 +92,7 @@ class trainer(BaseTrain):
         # prepare GT data
         smplGT = torch.cat([
             input_batch['smplGT']['betas'],
-            input_batch['smplGT']['pose'].reshape(-1, 144),
+            input_batch['smplGT']['pose'].reshape(-1, 144),   # 24 * 6 = 144
             input_batch['smplGT']['trans']],
             dim = 1).float()
         dispGT = input_batch['meshGT']['displacement'].reshape([-1, 20670])
@@ -120,7 +118,8 @@ class trainer(BaseTrain):
         """"Testing process"""
         self.model.eval()    
         
-        test_loss_vertices, test_loss_uvmaps, test_loss = 0, 0, 0
+        test_loss_supVis, test_loss = 0, 0
+        test_loss_render, test_loss_latent = 0, 0
         for step, batch in enumerate(tqdm(self.test_data_loader, desc='Test',
                                           total=len(self.test_ds) // self.options.batch_size,
                                           initial=self.test_data_loader.checkpoint_batch_idx),
@@ -132,84 +131,130 @@ class trainer(BaseTrain):
                     batch_toDEV[key] = val.to(self.device)
                 else:
                         batch_toDEV[key] = val
-                        
                 if isinstance(val, dict):
                     batch_toDEV[key] = {}
                     for k, v in val.items():
                         if isinstance(v, torch.Tensor):
                             batch_toDEV[key][k] = v.to(self.device)
-                                
+            # prepare GT
+            smplGT = torch.cat([
+                batch_toDEV['smplGT']['betas'],
+                batch_toDEV['smplGT']['pose'].reshape(-1, 144),
+                batch_toDEV['smplGT']['trans']],
+                dim = 1).float()
+            dispGT = batch_toDEV['meshGT']['displacement'].reshape([-1, 20670])
+            GT = {'img' : batch_toDEV['img'],
+                  'SMPL': smplGT,
+                  'disp': dispGT,
+                  'text': batch_toDEV['meshGT']['texture'],
+                  'camera': batch_toDEV['cameraGT'],
+                  'indexMap': batch_toDEV['indexMapGT']}            
+
             with torch.no_grad():    # disable grad
-                out = self.train_step(batch_toDEV)
-                    
-            test_loss += out['loss']
-            test_loss_vertices += out['loss_vertices']
-            test_loss_uvmaps += out['loss_uvMap']
-            
-            # save for comparison
-            if step == 0:
-                self.save_sample(batch_toDEV, out)
-            
+                pred, codes = self.model(GT['img'], GT)
+                loss = self.model.computeLoss(pred, codes, GT)
+                # save for comparison
+                if step == 0:
+                    self.save_sample(batch_toDEV, pred)
+                
+            test_loss += loss['loss']
+            test_loss_supVis += loss['supVisLoss']
+            test_loss_latent += loss['latCodeLoss']
+            test_loss_render += loss['renderLoss']
+                        
         test_loss = test_loss/len(self.test_data_loader)
-        test_loss_vertices = test_loss_vertices/len(self.test_data_loader)
-        test_loss_uvmaps = test_loss_uvmaps/len(self.test_data_loader)
+        test_loss_supVis = test_loss_supVis/len(self.test_data_loader)
+        test_loss_latent = test_loss_latent/len(self.test_data_loader)
+        test_loss_render = test_loss_render/len(self.test_data_loader)
         
         lossSummary = {'test_loss': test_loss, 
-                       'test_loss_vertices' : test_loss_vertices,
-                       'test_loss_uvmaps': test_loss_uvmaps
+                       'test_loss_supVis' : test_loss_supVis,
+                       'test_loss_latent' : test_loss_latent,
+                       'test_loss_render' : test_loss_render
                        }
         self.test_summaries(lossSummary)
-        
         
     def save_sample(self, data, prediction, ind = 0):
         """Saving a sample for visualization and comparison"""
         folder = pjn(self.options.summary_dir, 'test/')
         _input = pjn(folder, 'input_image.png')
+        batchs = self.options.batch_size
         
         # save the input image, if not saved
         if not isfile(_input):
             plt.imsave(_input, data['img'][ind].cpu().permute(1,2,0).clamp(0,1).numpy())
+        # save indexMap
+        savepath = pjn( 
+            folder, '%s_iters%d_prediction.png'%
+            (data['imgname'][ind].split('/')[-1][:-4], 
+            self.step_count) )
+        plt.imsave(savepath,
+                   prediction['indexMap'][ind].cpu().permute(1,2,0).clamp(0,1).numpy())    
+        
+        # save body pose if available
+        if self.structuresCfg.structureList['SMPL']['enable']:
+            bodyList = {}
+            
+            # create GT undressed body vetirces
+            jointsRot = rot6d_to_axisAngle(
+                data['smplGT']['pose'][ind].to(torch.float)[None,:])
+            bodyList['bodyGT'] = self.smpl(
+                jointsRot[None].reshape(1, -1), 
+                data['smplGT']['betas'][ind].to(torch.float)[None,:], 
+                data['smplGT']['trans'][ind].to(torch.float)[None,:]).cpu()
+            
+            # create predicted undressed body vetirces
+            jointsRot= rot6d_to_axisAngle(
+                prediction['SMPL'][ind][:144].view(-1, 6))
+            bodyList['bodyPred'] = self.smpl(
+                jointsRot[None].reshape(1, -1), 
+                prediction['SMPL'][ind][144:154][None], 
+                prediction['SMPL'][ind][154:157][None]).cpu()
 
-        # if self.options.model == 'graphcnn':
-        #     # Grab GT SMPL parameters and create body body for displacements
-        #     body_vertices = self.smpl(
-        #         data['smplGT']['pose'][ind].to(torch.float)[None,:], 
-        #         data['smplGT']['betas'][ind].to(torch.float)[None,:], 
-        #         data['smplGT']['trans'][ind].to(torch.float)[None,:]).cpu()
+            if self.structuresCfg.structureList['disp']['enable']:
+                bodyList['bodyGT_GTCloth'] = \
+                    bodyList['bodyGT'] + data['disp'][ind].cpu()[None,:]      
+                bodyList['bodyGT_PredCloth'] = \
+                    bodyList['bodyGT'] + prediction['disp'][ind].cpu()[None,:]          
+                bodyList['bodyPred_PredCloth']= \
+                    bodyList['bodyPred']+prediction['disp'][ind].cpu()[None,:]  
+                                
+            # Create meshes and save them
+            for key, val in bodyList.items():
+                MeshGT = create_fullO3DMesh(val[0], self.faces.cpu()[0])    
+                savepath = '_'.join(savepath.split('_')[:-1])+'_%s.obj'%key
+                o3d.io.write_triangle_mesh(savepath, MeshGT)
+        
+        # save the projection if available
+        if self.structuresCfg.structureList['camera']['enable']: 
+            cameraPred = prediction['camera']
+            predPixels, visibility = self.persCamera(
+                fx = cameraPred[:,0].double(), 
+                fy = cameraPred[:,0].double(),  
+                cx = torch.ones(1)*self.options.img_res/2, 
+                cy = torch.ones(1)*self.options.img_res/2, 
+                rotation = rot6d_to_rotmat(cameraPred[:,1:7]).double(), 
+                translation = data['camera']['t'][:,None,:].double(), 
+                points= bodyList['bodyPred_PredCloth'].double(), 
+                faces = self.faces.repeat_interleave(1, dim = 0).double(), 
+                visibilityOn = True)
             
-        #     # Add displacements to naked body
-        #     predictedBody = body_vertices + \
-        #                     prediction['predict_vertices'][ind].cpu()[None,:]            
-        #     # Create predicted mesh and save it
-        #     predictedMesh = create_fullO3DMesh(predictedBody[0], self.faces.cpu()[0])
-        #     savepath = pjn( folder, '%s_iters%d_prediction.obj'%
-        #                    (data['imgname'][ind].split('/')[-1][:-4], 
-        #                     self.step_count) )
-        #     o3d.io.write_triangle_mesh(savepath, predictedMesh)
+            # convert data type and remove pixels out of the image boundary.
+            pixels = predPixels[0].round()
+            keptPixs =  (pixels[:,0]<self.options.img_res)*(pixels[:,0]>=0)\
+                       *(pixels[:,1]<self.options.img_res)*(pixels[:,1]>=0)
+            pixels = pixels[keptPixs]
             
-        #     # If there is no ground truth, create and save it
-        #     savepath = pjn( folder, '%s_groundtruth.obj'%
-        #                    (data['imgname'][ind].split('/')[-1][:-4]) )
-        #     if not isfile(savepath):
-        #         grndTruthBody = body_vertices + \
-        #                     data['meshGT']['displacement'][ind].cpu()[None,:]
-        #         grndTruthMesh = create_fullO3DMesh(grndTruthBody[0], self.faces.cpu()[0])
-        #         o3d.io.write_triangle_mesh(savepath, grndTruthMesh)
+            # remove invisible vertices/pixels
+            batchId, indices = torch.where(visibility)
+            indices = indices[keptPixs]
             
-        # elif self.options.model == 'unet':
-        #     # save predicted uvMap
-        #     savepath = pjn(folder, '%s_iters%d_prediction.png'%
-        #                    (data['imgname'][ind].split('/')[-1][:-4], 
-        #                     self.step_count) )
-        #     plt.imsave(savepath, 
-        #                prediction['predict_unMap'][ind].cpu().clamp(0,1).numpy())
+            # create GT indexMap
+            indexMap = torch.zeros(
+                [self.options.img_res, self.options.img_res, 3])
+            indexMap[pixels[:,1].long(), pixels[:,0].long()] = \
+                self.indicesToCode(indices)
             
-        #     # If there is no ground truth, create and save it
-        #     savepath = pjn(folder, '%s_groundtruth.png'%
-        #                    (data['imgname'][ind].split('/')[-1][:-4])) 
-        #     if not isfile(savepath):
-        #         plt.imsave(savepath, data['UVmapGT'][ind].cpu().numpy())
-                
 
 if __name__ == '__main__':
     # read preparation configurations

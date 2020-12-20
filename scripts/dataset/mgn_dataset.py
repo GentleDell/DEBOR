@@ -129,7 +129,7 @@ class BaseDataset(Dataset):
             # read smpl parameters 
             #     The 6D rotation representation is used here.
             registration = pickle.load(open( pjn(obj, 'registration.pkl'), 'rb'),  encoding='iso-8859-1')
-            jointsRot6d  = axisAngle_to_Rot6d(torch.tensor(registration['pose'].reshape([-1, 3])))
+            jointsRot6d  = axisAngle_to_Rot6d(torch.as_tensor(registration['pose'].reshape([-1, 3])))
             self.smplGTParas.append({'betas': registration['betas'],
                                      'pose':  jointsRot6d, 
                                      'trans': registration['trans']})
@@ -311,7 +311,7 @@ class BaseDataset(Dataset):
         return rgb_img
 
     def camera_trans(self, img, center, scale, rot, flip, cameraOrig, options):
-        """Generate GT camera corresponding to augmented image"""
+        """Generate GT camera corresponding to the augmented image"""
         
         assert flip == 0, 'camera GT does not support flipping yet.'
         
@@ -408,7 +408,7 @@ class BaseDataset(Dataset):
         # In camera, we predict f and 6d rotation only, because:
         #     1. the Cx Cy are assumed to be the center of the image
         #     2. t vector is decided by the location of the bbox, which can
-        #        not be recovered by the input cropped image.
+        #        not be recovered from the input cropped image.
         item['cameraGT'] = {
             'f_rot':np.hstack([np.array(GTcamera['intrinsic'][0,0][None,None]), 
                        rotMat_to_rot6d(GTcamera['extrinsic'][:,:3][None])]),
