@@ -45,6 +45,10 @@ class DEBORNet(nn.Module):
             'options', 
             self.options.structureList['indexMap'].keys())\
             (**self.options.structureList['indexMap'])
+        self.rendercfg = namedtuple(
+            'options', 
+            self.options.structureList['rendering'].keys())\
+            (**self.options.structureList['rendering'])
         
         # --------- SMPL model encoder and decoder ---------
         if self.SMPLcfg.enable:
@@ -162,38 +166,44 @@ class DEBORNet(nn.Module):
         # TODO
         # self.interBatch_loss Try it later
         
-    def computeLoss(self, inputImg, pred, GT, latentCode):
-        latentCodeLoss = self.latent_loss(
-            latentCode['imageCode'],
-            latentCode['SMPLCode'], latentCode['dispCode'], 
-            latentCode['textCode'], latentCode['cameraCode'])
-        superviseLoss  = self.supVis_loss(
-            pred, GT['imageGT'], GT['SMPLGT'], GT['dispGT'], 
-            GT['textGT'], GT['cameraGT'])
-        renderingLoss  = self.render_loss(inputImg, pred, GT)
+    def computeLoss(self, pred, latentCode, GT):
+        latentCodeLoss = self.latent_loss(latentCode)
+        superviseLoss  = self.supVis_loss(pred, GT)
+        renderingLoss  = self.render_loss(GT['img'], pred, GT)
         
         latCodeLossSum = \
-            self.SMPLcfg.weight.latentCode*latentCodeLoss['smplCode_loss'] +\
-            self.dispcfg.weight.latentCode*latentCodeLoss['dispCode_loss'] +\
-            self.textcfg.weight.latentCode*latentCodeLoss['textCode_loss'] +\
-            self.cameracfg.weight.latentCode*latentCodeLoss['cameraCode_loss']
+            self.SMPLcfg.weight['latentCode']\
+                *latentCodeLoss['smplCode_loss'] +\
+            self.dispcfg.weight['latentCode']\
+                *latentCodeLoss['dispCode_loss'] +\
+            self.textcfg.weight['latentCode']\
+                *latentCodeLoss['textCode_loss'] +\
+            self.cameracfg.weight['latentCode']\
+                *latentCodeLoss['cameraCode_loss']
         supVisLossSum = \
-            self.indMapcfg.weight*superviseLoss['indexMapSupv_loss'] +\
-            self.SMPLcfg.weight.supervision*superviseLoss['smplSupv_loss'] +\
-            self.dispcfg.weight.supervision*superviseLoss['dispSupv_loss'] +\
-            self.textcfg.weight.supervision*superviseLoss['textSupv_loss'] +\
-            self.cameracfg.weight.supervision*superviseLoss['cameraSupv_loss']
-            
-        outLoss = {'loss': supVisLossSum + latCodeLossSum + renderingLoss,
+            self.indMapcfg.weight\
+                *superviseLoss['indexMapSupv_loss'] +\
+            self.SMPLcfg.weight['supervision']\
+                *superviseLoss['smplSupv_loss'] +\
+            self.dispcfg.weight['supervision']\
+                *superviseLoss['dispSupv_loss'] +\
+            self.textcfg.weight['supervision']\
+                *superviseLoss['textSupv_loss'] +\
+            self.cameracfg.weight['supervision']\
+                *superviseLoss['cameraSupv_loss']
+        
+        renderLossSum = \
+            self.rendercfg.weight['proj_weight']*renderingLoss['projLoss'] +\
+            self.rendercfg.weight['render_weight']*renderingLoss['textLoss']
+        
+        outLoss = {'loss': supVisLossSum + latCodeLossSum + renderLossSum,
                    'supVisLoss': supVisLossSum,
                    'latCodeLoss': latCodeLossSum,
                    'renderLoss': renderingLoss}
         return outLoss
         
-    def forward(self, image, SMPLParams = None, disps = None, text = None,
-                camera = None, init_cam = None, init_pose = None, 
+    def forward(self, image, GT, init_cam = None, init_pose = None, 
                 init_shape = None):
-                
         # extract latent codes 
         codes, connections, aggCode = self.imageenc(image)
         
@@ -204,42 +214,44 @@ class DEBORNet(nn.Module):
         latentCode = {'imgAggCode': aggCode}   
  
         if self.SMPLcfg.enable:
-            assert SMPLParams is not None, \
+            assert GT["SMPL"] is not None, \
                 "to train SMPL branch, SMPLParams must be given."
-            SMPL_encode = self.SMPLenc(SMPLParams)
+            SMPL_encode = self.SMPLenc(GT["SMPL"])
             SMPL_decode = self.SMPLdec(
                 aggCode[:,self.SMPLcfg.latent_start:
-                          self.SMPLcfg.latent_shape])
+                    self.SMPLcfg.latent_start + self.SMPLcfg.latent_shape])
             latentCode['SMPL'] = SMPL_encode
             prediction['SMPL'] = SMPL_decode
         
         if self.dispcfg.enable:
-            assert disps is not None, \
+            assert GT["disp"] is not None, \
                 "to train disp branch, GT disp must be given."
-            disp_encode = self.dispenc(disps)
+            disp_encode = self.dispenc(GT["disp"])
             disp_decode = self.dispdec(
                 aggCode[:,self.dispcfg.latent_start:
-                          self.dispcfg.latent_shape])
+                    self.dispcfg.latent_start + self.dispcfg.latent_shape])
             latentCode['disp'] = disp_encode
             prediction['disp'] = disp_decode
         
         if self.textcfg.enable:
-            assert text is not None, \
+            raise ValueError('modify the structure options of latent code')
+            assert GT["text"] is not None, \
                 "to train texture branch, GT texture/color must be given."
-            text_encode = self.textenc(text)
+            text_encode = self.textenc(GT["text"])
             text_decode = self.textdec(
                 aggCode[:,self.textcfg.latent_start:
-                          self.textcfg.latent_shape])
+                    self.textcfg.latent_start + self.textcfg.latent_shape])
             latentCode['text'] = text_encode
             prediction['text'] = text_decode
         
         if self.cameracfg.enable:
-            assert camera is not None, \
+            assert GT["camera"] is not None, \
                 "to train camera branch, GT camera must be given."
-            camera_encode = self.cameraenc(camera)
+            camera_encode = self.cameraenc(
+                GT["camera"]['f_rot'].squeeze(dim = 1).float())
             camera_decode = self.cameradec(
                 aggCode[:,self.cameracfg.latent_start:
-                          self.cameracfg.latent_shape])
+                    self.cameracfg.latent_start+self.cameracfg.latent_shape])
             latentCode['camera'] = camera_encode
             prediction['camera'] = camera_decode
         
