@@ -72,8 +72,7 @@ class MGN_subjectPreAugmentation(object):
             self.poses.append( torch.Tensor(registration['pose'][None,:]) )
             self.trans.append( torch.Tensor(registration['trans'][None,:]) )
     
-    def diversity(self, dataList: list, keepN: int = 15, 
-                  threshold: int= 2.5) -> list:
+    def diversity(self, dataList: list, keepN: int = 15) -> list:
         
         data = torch.cat(dataList, dim = 0)
         
@@ -91,6 +90,9 @@ class MGN_subjectPreAugmentation(object):
         mask[pair[1]] = 0
         
         for cnt in range(keepN-2):
+            
+            if cnt == data.shape[0] - 2:
+                break
             
             distance = (data[:,None,:] - torch.cat(independ, dim = 0)[None,:,:]).norm(dim=2).sum(dim=1)*mask
             _, pair = distance.max(dim = 0)
@@ -113,7 +115,7 @@ class MGN_subjectPreAugmentation(object):
         
         return independ, indices
     
-    def augment_MGN(self, aug_data: list = ['pose']):
+    def augment_MGN(self, aug_data: list = ['pose'], keepN = 10):
         '''
         Augment the data required by the aug_data. 
         
@@ -142,7 +144,7 @@ class MGN_subjectPreAugmentation(object):
             
             if augTar == 'pose':
                 # obtain diverse samples
-                independ, indices = self.diversity(self.poses)
+                independ, indices = self.diversity(self.poses, keepN)
                 
                 # prepare smpl model on pytorch
                 smpl = SMPL(self.path_smpl, 'cpu')
@@ -172,7 +174,7 @@ class MGN_subjectPreAugmentation(object):
                             segmentationPath=pjn(path, 'segmentation.png'),
                             triangle_UVs=smpl_text_uv_coord[smpl_text_uv_mesh.flatten()],
                             use_text=True)    
-                        # o3d.visualization.draw_geometries([dressed_body])
+                        o3d.visualization.draw_geometries([dressed_body])
                         
                         
                         # create new folder for the new subject
@@ -213,6 +215,6 @@ if __name__ == "__main__":
     
     '''
     pathmodel = '/home/zhantao/Documents/masterProject/DEBOR/body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl'
-    path = '../../datasets/MGN_brighter'
+    path = '../../datasets/SampleMGNDateset'
     mgn  = MGN_subjectPreAugmentation(path, pathmodel)
-    # mgn.augment_MGN()
+    mgn.augment_MGN()

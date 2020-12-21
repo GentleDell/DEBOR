@@ -10,7 +10,7 @@ import ast
 import sys 
 sys.path.append( "../" )
 sys.path.append( "../third_party/smpl_webuser" )
-# import pathlib
+import pathlib
 import argparse
 import subprocess
 from glob import glob
@@ -351,10 +351,10 @@ if __name__ == "__main__":
     prepareData(cfgs)
     
     # set paths and use blender to render images
-    # if cfgs['enable_rendering']:
-    #     renderScript = pjn( str(pathlib.Path().absolute().parent), "utils/blender_util.py" )        
-    #     cachePathAbs = str(pathlib.Path(__file__).parent.absolute())
-    #     _run_blender(cfgs['blenderPath'], renderPath=renderScript, cachePath = cachePathAbs)
+    if cfgs['enable_rendering']:
+        renderScript = pjn( str(pathlib.Path().absolute().parent), "utils/blender_util.py" )        
+        cachePathAbs = str(pathlib.Path(__file__).parent.absolute())
+        _run_blender(cfgs['blenderPath'], renderPath=renderScript, cachePath = cachePathAbs)
     
     # compute the ground truth displacements; verify the quality of the 
     # rendered image and get the bounding box
