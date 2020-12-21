@@ -40,7 +40,7 @@ structure_options = {
             
             'weight' : {
                 'latentCode'  : 0.001,
-                'supervision' : 0.1
+                'supervision' : 1
                 }, 
             },
             
