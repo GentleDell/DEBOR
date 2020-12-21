@@ -63,7 +63,7 @@ def blenderCamera(camera, scene):
 
 
 def render_MGN(camList: list, lightList: list, fileList: list, 
-               meshName: str = 'smpl_registered'):  
+               meshName: str = 'smpl_registered', device = 'GPU'):  
     '''
     This function use blender to render the meshes of MGN dataset with the 
     given cameras and lightings. Tested on Blender2.90.1.
@@ -98,7 +98,7 @@ def render_MGN(camList: list, lightList: list, fileList: list,
     
     # set render engine and device
     scene.render.engine = 'CYCLES'
-    scene.cycles.device = 'GPU'
+    scene.cycles.device = device
     scene.render.film_transparent = True
     scene.view_settings.view_transform = 'Standard'
     
@@ -238,6 +238,6 @@ if __name__ == "__main__":
     with open( pjn( pickleRoot, 'lights.pickle'), 'rb' ) as handle:
         lights   = pickle.load(handle)
 
-    render_MGN(cameras, lights, MGN_data)
+    render_MGN(cameras, lights, MGN_data, device='CPU')
         
         
