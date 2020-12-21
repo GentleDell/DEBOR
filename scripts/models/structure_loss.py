@@ -155,7 +155,7 @@ class supervision_loss(nn.Module):
                 [self.cameracfg.supVis_lossFunc == 'L2']
         self.indMapLossfunc = (nn.L1Loss(), nn.MSELoss())\
                 [self.indMapcfg.supVis_lossFunc == 'L2']
-        
+
     def forward(self, prediction, GT):
         supVisLoss = {'smplSupv_loss': 0,
                       'dispSupv_loss': 0,
@@ -181,10 +181,17 @@ class supervision_loss(nn.Module):
                     prediction['camera'],
                     GT['camera']['f_rot'].squeeze(dim = 1).float())
         
+        # normalization L1 loss for indexMaps if required
+        mask = torch.ones_like(prediction['indexMap']).bool()
+        if self.indMapcfg.normalization:
+            with torch.no_grad():
+                mask = \
+                    (prediction['indexMap'] - GT['indexMap'].permute(0,3,1,2))\
+                        .abs() > self.indMapcfg.normlizeThres
         supVisLoss['indexMapSupv_loss'] = \
             self.indMapLossfunc(
-                prediction['indexMap'], 
-                GT['indexMap'].permute(0,3,1,2))
+                prediction['indexMap'][mask], 
+                GT['indexMap'].permute(0,3,1,2)[mask])
         
         return supVisLoss
         

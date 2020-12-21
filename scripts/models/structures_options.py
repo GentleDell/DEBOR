@@ -21,7 +21,9 @@ structure_options = {
             'supVis_lossFunc' : 'L1',   # ('L1', 'L2') 
             'batch_lossFunc'  : 'L2',   # only support L2 yet
             
-            'weight' : 0.1
+            'weight' : 1,
+            'normalization': True,    # using normalized/standard L1 loss 
+            'normlizeThres': 0.005    # threshold should < min gap 0.01887/2 
             },
         
         'SMPL': {
