@@ -155,35 +155,51 @@ class upNet(nn.Module):
         
     def forward(self, x, layers: list):
         
-        assert len(layers) == 2, 'only keep the lowest 2 layers'
+        assert len(layers) == 5, 'to keep fine details, pass all 5 layers'
         
-        u1 = self.u1(x , layers[4])     # 8x8x2048
-        u2 = self.u2(u1, layers[3])     # 14x14x1024
-        u3 = self.u3(u2, layers[2])     # 28x28x512
-        u4 = self.u4(u3, layers[1])     # 56x56x256
-        u5 = self.u5(u4, layers[0])     # 112x112x128
-        u6 = self.u6(u5)                # 224x224x64
+        u1 = self.u1(x , layers[4])     # 2048x8x8
+        u2 = self.u2(u1, layers[3])     # 1024x14x14
+        u3 = self.u3(u2, layers[2])     # 512x28x28
+        u4 = self.u4(u3, layers[1])     # 256x56x56
+        u5 = self.u5(u4, layers[0])     # 128x112x112
+        u6 = self.u6(u5)                # 64x224x224
         
-        out = self.outLayer(u6)         # 224x224xoutdim
+        out = self.outLayer(u6)         # outdimx224x224
         
         return out
 
-class poseNet(nn.Module):
+class iterativeNet(nn.Module):
     '''
-    Code adapted from from TexturePose[1], pytorch_HMR[2] and expose[3].
+    Code adapted from from TexturePose[1], pytorch_HMR[2] and expose[3]. 
+    
+    This class iteratively regress the delta pose and shape and camera parameters
+    from corresponding mean values, given the latent representation from up
+    stream network.
+    
+    In some implementations, there are activation function layers but not in 
+    other implementations.
     
     [1] https://github.com/geopavlakos/TexturePose
     [2] https://github.com/MandyMo/pytorch_HMR/
     [3] https://github.com/vchoutas/expose
 
     '''    
-    def __init__(self, infeature, inShape, npose=144, numiters=3):
-        super(poseNet, self).__init__()
+    def __init__(self, infeature, npose=144, ncam=7, 
+                 initPose=None, initBeta=None, initTrans=None, initCam=None,
+                 numiters=3, withActFunc=False):
+        super(iterativeNet, self).__init__()
+        
+        print('Settings for camera net will be ignored as iterNet is used.')
+        
+        self.initPose  = initPose
+        self.initBeta  = initBeta
+        self.initTrans = initTrans
+        self.initCam   = initCam
         
         self.numiters = numiters
+        self.actFuncOn= withActFunc
         
-        self.inconv = nn.Conv2d(infeature, infeature, inShape)
-        self.fc1   = nn.Linear(infeature  + npose + 10, 1024)
+        self.fc1   = nn.Linear(infeature + npose + 10 + ncam + 3, 1024)
         self.relu1 = nn.ReLU()
         self.drop1 = nn.Dropout()
         self.fc2   = nn.Linear(1024, 1024)
@@ -192,95 +208,56 @@ class poseNet(nn.Module):
         
         self.decpose = nn.Linear(1024, npose)
         self.decshape = nn.Linear(1024, 10)
+        self.dectrans = nn.Linear(1024, 3)
+        self.deccamera = nn.Linear(1024, ncam)
         nn.init.xavier_uniform_(self.decpose.weight, gain=0.01)
         nn.init.xavier_uniform_(self.decshape.weight, gain=0.01)
+        nn.init.xavier_uniform_(self.dectrans.weight, gain=0.01)
+        nn.init.xavier_uniform_(self.deccamera.weight, gain=0.01)
         
-    def forward(self, x, init_pose, init_shape):
+    def forward(self, xin, init_pose=None, init_shape=None, 
+                init_trans=None, init_cam=None):
         '''
-        Iteratively estiamte the pose and shape parameters
+        Iteratively estiamte the pose, shape and camera parameters.
 
         Parameters
         ----------
-        x : TYPE
-            DESCRIPTION.
-        init_pose : TYPE
-            DESCRIPTION.
-        init_shape : TYPE
-            DESCRIPTION.
-
+        x : 
+            Latent feature representation from up stream network.
+        init_pose, init_shape, init_cam : 
+            Initial value of the parameters
         Returns
         -------
-        out : TYPE
-            DESCRIPTION.
+        out : dict of predicted parameters.
 
         '''
-        out = []
+        out = {}
         
-        xin = self.inconv(x)
-        xin = xin.view(xin.size(0), -1)
-        
-        for cnt in range(self.numiters):
-            
-            xf = torch.cat([xin,init_pose,init_shape],1)
-            xf = self.fc1(xf)
-            xf = self.relu1(xf)
-            xf = self.drop1(xf)        
-            xf = self.fc2(xf)
-            xf = self.relu2(xf)
-            xf = self.drop2(xf)
-            
-            init_pose  = self.decpose(xf) + init_pose
-            init_shape = self.decshape(xf) + init_shape
-            
-            out.append(init_pose)
-            out.append(init_shape)
-
-        return out
-      
-class cameraNet(nn.Module):
-    '''
-    Code adapted from from TexturePose[1], pytorch_HMR[2] and expose[3].
-    
-    [1] https://github.com/geopavlakos/TexturePose
-    [2] https://github.com/MandyMo/pytorch_HMR/
-    [3] https://github.com/vchoutas/expose
-
-    '''    
-    def __init__(self, infeature, inShape, numiters=3):
-        super(cameraNet, self).__init__()
-        
-        self.numiters = numiters
-        
-        self.inconv = nn.Conv2d(infeature, infeature, inShape)
-        self.fc1   = nn.Linear(infeature + 3, 1024)
-        self.relu1 = nn.ReLU()
-        self.drop1 = nn.Dropout()
-        self.fc2   = nn.Linear(1024, 1024)
-        self.relu2 = nn.ReLU()
-        self.drop2 = nn.Dropout()
-        
-        self.deccam = nn.Linear(1024, 3)
-        nn.init.xavier_uniform_(self.deccam.weight, gain=0.01)
-        
-    def forward(self, x, init_cam):
-        out = []
-    
-        xin = self.inconv(x)
-        xin = xin.view(xin.size(0), -1)
+        predPose = (init_pose, self.initPose)[init_pose is None]
+        predBeta = (init_shape, self.initBeta)[init_shape is None]
+        predTran = (init_trans, self.initTrans)[init_trans is None]
+        predCam  = (init_cam, self.initCam)[init_cam is None]
         
         for cnt in range(self.numiters):
             
-            xf = torch.cat([xin,init_cam],1)
+            xf = torch.cat([xin,predPose, predBeta, predTran, predCam],1)
             xf = self.fc1(xf)
-            xf = self.relu1(xf)
+            if self.actFuncOn:
+                xf = self.relu1(xf)
             xf = self.drop1(xf)        
+            
             xf = self.fc2(xf)
-            xf = self.relu2(xf)
+            if self.actFuncOn:
+                xf = self.relu2(xf)
             xf = self.drop2(xf)
             
-            init_cam  = self.deccam(xf) + init_cam
+            predPose  = self.decpose(xf) + predPose
+            predBeta = self.decshape(xf) + predBeta
+            predTran  =  self.dectrans(xf) + predTran
+            predCam  = self.deccam(xf) + predCam
             
-            out.append(init_cam)
+            out['iter%d'%cnt] = \
+                torch.cat([predPose, predBeta, predTran, predCam], dim = 1)
 
-        return out
-    
+        return out[-1]
+          

@@ -63,16 +63,42 @@ class trainer(BaseTrain):
         self.smpl = SMPL(self.options.smpl_model_path, self.device)
         self.smplEdge = torch.Tensor(np.load(self.options.smpl_edges_path)) \
                         .long().to(self.device)
-                        
+                      
+        # load average pose and shape 
+        self.avgPose = \
+            torch.Tensor(
+                np.load(self.options.MGN_avgPose_path)[None]\
+                    .repeat(self.options.batch_size, axis = 0)).to(self.device)
+        self.avgBeta = \
+            torch.Tensor(np.load(self.options.MGN_avgBeta_path)[None]
+                    .repeat(self.options.batch_size, axis = 0)).to(self.device)
+        self.avgTrans= \
+            torch.Tensor(np.load(self.options.MGN_avgTrans_path)[None]\
+                    .repeat(self.options.batch_size, axis = 0)).to(self.device)
+        self.avgCam  = \
+            torch.Tensor([718, -1, 0, 0, 0, 0, -1])[None]\
+                    .repeat_interleave(self.options.batch_size, dim = 0)\
+                    .to(self.device)    # we know the rendered dataset
+        
         # Create model
         if self.structuresCfg.structureList\
                 ['disp']['network'] == 'dispGraphNet':
             self.model = DEBORNet(
                 self.structuresCfg, 
                 self.mesh.adjmat,
-                self.mesh.ref_vertices.t()).to(self.device)
+                self.mesh.ref_vertices.t(),
+                avgPose = self.avgPose,
+                avgBeta = self.avgBeta,
+                avgTrans= self.avgTrans,
+                ).to(self.device)
         else:
-            self.model = DEBORNet(self.structuresCfg).to(self.device)
+            self.model = DEBORNet(
+                self.structuresCfg,
+                avgPose = self.avgPose,
+                avgBeta = self.avgBeta,
+                avgTrans= self.avgTrans,
+                avgCam  = self.avgCam,
+                ).to(self.device)
             
         # Setup a optimizer for models
         self.optimizer = torch.optim.Adam(
@@ -91,17 +117,21 @@ class trainer(BaseTrain):
  
         # prepare GT data
         smplGT = torch.cat([
-            input_batch['smplGT']['betas'],
             input_batch['smplGT']['pose'].reshape(-1, 144),   # 24 * 6 = 144
-            input_batch['smplGT']['trans']],
+            input_batch['smplGT']['betas'][:,0,:],
+            input_batch['smplGT']['trans'][:,0,:]],
             dim = 1).float()
         dispGT = input_batch['meshGT']['displacement'].reshape([-1, 20670])
         GT = {'img' : input_batch['img'],
-              'SMPL': smplGT,
               'disp': dispGT,
               'text': input_batch['meshGT']['texture'],
               'camera': input_batch['cameraGT'],
-              'indexMap': input_batch['indexMapGT']}
+              'indexMap': input_batch['indexMapGT'],
+              'SMPL': 
+                  (smplGT, torch.cat([smplGT,
+                      input_batch['cameraGT']['f_rot'][:,0,:]],  dim = 1))\
+              [self.structuresCfg.structureList['SMPL']['network']=='iterNet']
+              }
         
         # forward pass
         pred, codes = self.model(input_batch['img'], GT)
@@ -143,12 +173,17 @@ class trainer(BaseTrain):
                 batch_toDEV['smplGT']['trans']],
                 dim = 1).float()
             dispGT = batch_toDEV['meshGT']['displacement'].reshape([-1, 20670])
-            GT = {'img' : batch_toDEV['img'],
-                  'SMPL': smplGT,
-                  'disp': dispGT,
-                  'text': batch_toDEV['meshGT']['texture'],
-                  'camera': batch_toDEV['cameraGT'],
-                  'indexMap': batch_toDEV['indexMapGT']}            
+            GT = {
+                'img' : batch_toDEV['img'],
+                'disp': dispGT,
+                'text': batch_toDEV['meshGT']['texture'],
+                'camera': batch_toDEV['cameraGT'],
+                'indexMap': batch_toDEV['indexMapGT'],
+                'SMPL': 
+                    (smplGT, torch.cat([smplGT,
+                        batch_toDEV['cameraGT']['f_rot'][:,0,:]],  dim = 1))\
+                [self.structuresCfg.structureList['SMPL']['network']=='iterNet']
+                }           
 
             with torch.no_grad():    # disable grad
                 pred, codes = self.model(GT['img'], GT)
@@ -257,17 +292,38 @@ class trainer(BaseTrain):
             
 
 if __name__ == '__main__':
+    
+    import json
+    
     # read preparation configurations
     cfgs = TrainOptions()
     cfgs.parse_args()
+    
+    with open( pjn(cfgs.args.log_dir, 'structures.json'), 'w') as file:
+        json.dump(structure_options, file, indent=4)
 
+    # confirm general settings
     for arg in sorted(vars(cfgs.args)):
         print('%-25s:'%(arg), getattr(cfgs.args, arg)) 
-
-    # require confirmation
     msg = 'Do you confirm that the settings are correct?'
     assert input("%s (Y/N) " % msg).lower() == 'y', 'Settings are not comfirmed.'
     
+    # confirm structure settings
+    for key, val in structure_options.items():
+        if isinstance(val, dict):
+            print('%-25s:'%key)
+            for ikey, ival in val.items():
+                if isinstance(ival, dict):
+                    print('\t%-21s:'%ikey)
+                    for jkey, jval in ival.items():
+                        print('\t\t%-17s:'%(jkey), jval) 
+                else:
+                    print('\t%-21s:'%(ikey), ival) 
+        else:   
+            print('%-25s:'%(key), val) 
+    msg = 'Do you confirm that the structures are correct?'
+    assert input("%s (Y/N) " % msg).lower() == 'y', 'Settings are not comfirmed.'
+
     mgn_trainer = trainer(cfgs.args)
     mgn_trainer.train()
     

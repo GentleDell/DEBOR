@@ -27,13 +27,14 @@ structure_options = {
             },
         
         'SMPL': {
-            'enable': True,
+            'enable': False,
             'latent_shape': 512,
             'latent_start': 0,
             'infeature': 157,       # 144 rots + 10 betas + 3 trans
-            'network': 'simple',    # or poseNet
+            'network': 'iterNet',    # or iterNet and will overwrite camera
             'shape': [256, 256, 512, 512],    # shape for MLP
-            
+            'actFunc': False,       # if enable activation function in network
+             
             'latent_lossFunc' : 'L2',   # ('L1', 'L2', 'cross_entropy') 
             'supVis_lossFunc' : 'L1',   # ('L1', 'L2') 
             'batch_lossFunc'  : 'L2',   # only support L2 yet
@@ -85,7 +86,6 @@ structure_options = {
             'latent_shape': 128,
             'latent_start': 896,
             'infeature': 7,     
-            'network': 'simple',    # or cameraNet
             'shape': [16, 32, 64],    # shape for MLP
             
             'latent_lossFunc' : 'L2',   # ('L1', 'L2', 'cross_entropy') 

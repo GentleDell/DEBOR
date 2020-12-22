@@ -96,7 +96,9 @@ class latentCode_loss(nn.Module):
                     self.textcfg.latent_start + self.textcfg.latent_shape]
             latCodeLoss['textCode_loss'] = \
                 self.textlossfunc(latentCode['text'], target)
-        if self.cameracfg.enable:
+            
+        # if is iterativeNet, camera loss is involved in the SMPL loss
+        if self.cameracfg.enable and (self.SMPLcfg.network != 'iterNet'):
             assert latentCode['camera'] is not None
             target = imgCode[:,
                     self.cameracfg.latent_start:
@@ -174,7 +176,9 @@ class supervision_loss(nn.Module):
             assert GT['text'] is not None
             supVisLoss['textSupv_loss'] = \
                 self.textlossfunc(prediction['text'], GT['text'])
-        if self.cameracfg.enable:
+                
+        # if is iterativeNet, camera loss is involved in the SMPL loss
+        if self.cameracfg.enable and (self.SMPLcfg.network != 'iterNet'):
             assert GT['camera'] is not None
             supVisLoss['cameraSupv_loss'] = \
                 self.cameralossfunc(

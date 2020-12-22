@@ -15,11 +15,12 @@ from collections import namedtuple
 import torch.nn as nn
 
 from .structure_loss import latentCode_loss, supervision_loss, rendering_loss
-from .subtasks_nn import simpleMLP, cameraNet
-from .subtasks_nn import poseNet, upNet, downNet, dispGraphNet
+from .subtasks_nn import simpleMLP
+from .subtasks_nn import upNet, downNet, dispGraphNet, iterativeNet
 
 class DEBORNet(nn.Module):
     def __init__(self, structure_options, A = None, ref_vertices = None, 
+                 avgPose=None, avgBeta=None, avgTrans=None, avgCam=None,
                  device = 'cuda'):
         super(DEBORNet, self).__init__()
         
@@ -61,11 +62,19 @@ class DEBORNet(nn.Module):
                     self.SMPLcfg.latent_shape,
                     self.SMPLcfg.infeature,
                     layers = self.SMPLcfg.shape[::-1])
-            elif self.SMPLcfg.network == 'poseNet':
-                self.SMPLdec = poseNet( 
-                    self.SMPLcfg.latent_shape, 
-                    inShape = self.options.inShape,
-                    numiters= 3)    # maybe 1 would be better 
+                
+            elif self.SMPLcfg.network == 'iterNet':
+                assert avgBeta is not None and avgPose is not None\
+                    and avgTrans is not None and avgCam is not None,\
+                        "iterNet requires the average pose and shape."
+                self.SMPLdec = iterativeNet( 
+                    self.SMPLcfg.latent_shape,
+                    initPose = avgPose,
+                    initBeta = avgBeta,
+                    initTrans= avgTrans,
+                    initCam  = avgCam,
+                    numiters = 3,
+                    withActFunc=self.SMPLcfg.actFunc)
             else:
                 raise ValueError(self.SMPLcfg.network)
             
@@ -127,23 +136,15 @@ class DEBORNet(nn.Module):
                 raise ValueError(self.textcfg.network)
         
         # --------- camera encoder and decoder ---------
-        if self.cameracfg.enable:
+        if self.cameracfg.enable and (self.SMPLcfg.network != 'iterNet'):
             self.cameraenc = simpleMLP(
                 self.cameracfg.infeature, 
                 self.cameracfg.latent_shape,
                 layers = self.cameracfg.shape)
-            if self.cameracfg.network == 'simple':
-                self.cameradec = simpleMLP(
-                    self.cameracfg.latent_shape,
-                    self.cameracfg.infeature,
-                    layers = self.cameracfg.shape[::-1])
-            elif self.cameracfg.network == 'cam':
-                self.SMPLdec = cameraNet( 
-                    self.SMPLcfg.latent_shape, 
-                    inShape = self.options.inShape,
-                    numiters= 3)    # maybe 1 would be better 
-            else:
-                raise ValueError(self.textcfg.network)
+            self.cameradec = simpleMLP(
+                self.cameracfg.latent_shape,
+                self.cameracfg.infeature,
+                layers = self.cameracfg.shape[::-1])
         
         # --------- image encoder and decoder ---------
         # In tex2Shape, unet uses LeakyReLU in downsampling while use ReLU in 
@@ -243,7 +244,7 @@ class DEBORNet(nn.Module):
             latentCode['text'] = text_encode
             prediction['text'] = text_decode
         
-        if self.cameracfg.enable:
+        if self.cameracfg.enable and (self.SMPLcfg.network != 'iterNet'):
             assert GT["camera"] is not None, \
                 "to train camera branch, GT camera must be given."
             camera_encode = self.cameraenc(
