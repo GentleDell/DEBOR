@@ -200,6 +200,9 @@ class DEBORNet(nn.Module):
                    'supVisLoss': supVisLossSum,
                    'latCodeLoss': latCodeLossSum,
                    'renderLoss': renderingLoss}
+        outLoss.update(latentCodeLoss)
+        outLoss.update(superviseLoss)
+        
         return outLoss
         
     def forward(self, image, GT, init_cam = None, init_pose = None, 
@@ -216,7 +219,7 @@ class DEBORNet(nn.Module):
         if self.SMPLcfg.enable:
             assert GT["SMPL"] is not None, \
                 "to train SMPL branch, SMPLParams must be given."
-            SMPL_encode = self.SMPLenc(GT["SMPL"])
+            SMPL_encode = self.SMPLenc(GT["SMPL"].float())
             SMPL_decode = self.SMPLdec(
                 aggCode[:,self.SMPLcfg.latent_start:
                     self.SMPLcfg.latent_start + self.SMPLcfg.latent_shape])

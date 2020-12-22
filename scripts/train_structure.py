@@ -28,6 +28,7 @@ from utils.mesh_util import create_fullO3DMesh
 from models import SMPL, DEBORNet
 from models.structures_options import structure_options
 from models.geometric_layers import rot6d_to_axisAngle, rot6d_to_rotmat
+from models.geometric_layers import axisAngle_to_Rot6d
 from train_structure_cfg import TrainOptions
 
 # ignore all alert from open3d except error messages
@@ -66,9 +67,12 @@ class trainer(BaseTrain):
                       
         # load average pose and shape 
         self.avgPose = \
-            torch.Tensor(
-                np.load(self.options.MGN_avgPose_path)[None]\
-                    .repeat(self.options.batch_size, axis = 0)).to(self.device)
+            axisAngle_to_Rot6d(
+                torch.Tensor(
+                    np.load(self.options.MGN_avgPose_path)[None]\
+                    .repeat(self.options.batch_size, axis = 0))
+                    .reshape(-1, 3)).reshape(self.options.batch_size, -1)\
+                .to(self.device)
         self.avgBeta = \
             torch.Tensor(np.load(self.options.MGN_avgBeta_path)[None]
                     .repeat(self.options.batch_size, axis = 0)).to(self.device)
@@ -118,8 +122,8 @@ class trainer(BaseTrain):
         # prepare GT data
         smplGT = torch.cat([
             input_batch['smplGT']['pose'].reshape(-1, 144),   # 24 * 6 = 144
-            input_batch['smplGT']['betas'][:,0,:],
-            input_batch['smplGT']['trans'][:,0,:]],
+            input_batch['smplGT']['betas'],
+            input_batch['smplGT']['trans']],
             dim = 1).float()
         dispGT = input_batch['meshGT']['displacement'].reshape([-1, 20670])
         GT = {'img' : input_batch['img'],

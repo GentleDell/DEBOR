@@ -130,9 +130,11 @@ class BaseDataset(Dataset):
             #     The 6D rotation representation is used here.
             registration = pickle.load(open( pjn(obj, 'registration.pkl'), 'rb'),  encoding='iso-8859-1')
             jointsRot6d  = axisAngle_to_Rot6d(torch.as_tensor(registration['pose'].reshape([-1, 3])))
-            self.smplGTParas.append({'betas': registration['betas'],
+            bodyBetas    = (registration['betas'], registration['betas'][0])[len(registration['betas'].shape) == 2]
+            bodyTrans    = (registration['trans'], registration['trans'][0])[len(registration['trans'].shape) == 2]
+            self.smplGTParas.append({'betas': torch.as_tensor(bodyBetas),
                                      'pose':  jointsRot6d, 
-                                     'trans': registration['trans']})
+                                     'trans': torch.as_tensor(bodyTrans) })
             
             # read and resize UV texture map same for the segmentation 
             UV_textureMap = cv2.imread( pjn(obj, 'registered_tex.jpg') )[:,:,::-1]/255.0
@@ -165,7 +167,7 @@ class BaseDataset(Dataset):
         # plt.imshow(img/255)
         
         # self.getIndicesMap(1994, camera = None)
-        # self.__getitem__(0)
+        # self.__getitem__(6)
               
     def indicesToCode(self, indices):
         '''

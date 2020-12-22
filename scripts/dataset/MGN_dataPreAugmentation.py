@@ -190,9 +190,9 @@ class MGN_subjectPreAugmentation(object):
                         remove_irrelevant(newfolder)
                         
                         # save new SMPL parameters
-                        smplParams = {'betas': self.betas[ind],
-                                      'pose':  pose,
-                                      'trans': self.trans[ind]
+                        smplParams = {'betas': self.betas[ind][0],
+                                      'pose':  pose[0],
+                                      'trans': self.trans[ind][0]
                                      }
                         pickle.dump( smplParams, open( pjn(newfolder, "registration.pkl"), "wb" ) )
             else:

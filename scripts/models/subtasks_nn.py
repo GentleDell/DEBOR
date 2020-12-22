@@ -240,7 +240,7 @@ class iterativeNet(nn.Module):
         
         for cnt in range(self.numiters):
             
-            xf = torch.cat([xin,predPose, predBeta, predTran, predCam],1)
+            xf = torch.cat([xin, predPose, predBeta, predTran, predCam], 1)
             xf = self.fc1(xf)
             if self.actFuncOn:
                 xf = self.relu1(xf)
@@ -254,10 +254,10 @@ class iterativeNet(nn.Module):
             predPose  = self.decpose(xf) + predPose
             predBeta = self.decshape(xf) + predBeta
             predTran  =  self.dectrans(xf) + predTran
-            predCam  = self.deccam(xf) + predCam
+            predCam  = self.deccamera(xf) + predCam
             
             out['iter%d'%cnt] = \
                 torch.cat([predPose, predBeta, predTran, predCam], dim = 1)
 
-        return out[-1]
+        return out['iter%d'%(self.numiters-1)]
           

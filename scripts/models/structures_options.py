@@ -21,16 +21,16 @@ structure_options = {
             'supVis_lossFunc' : 'L1',   # ('L1', 'L2') 
             'batch_lossFunc'  : 'L2',   # only support L2 yet
             
-            'weight' : 1,
+            'weight' : 0,
             'normalization': True,    # using normalized/standard L1 loss 
             'normlizeThres': 0.005    # threshold should < min gap 0.01887/2 
             },
         
         'SMPL': {
-            'enable': False,
+            'enable': True,
             'latent_shape': 512,
             'latent_start': 0,
-            'infeature': 157,       # 144 rots + 10 betas + 3 trans
+            'infeature': 164,       # 144 rots + 10 betas + 3 trans + 7 camera
             'network': 'iterNet',    # or iterNet and will overwrite camera
             'shape': [256, 256, 512, 512],    # shape for MLP
             'actFunc': False,       # if enable activation function in network
@@ -40,7 +40,7 @@ structure_options = {
             'batch_lossFunc'  : 'L2',   # only support L2 yet
             
             'weight' : {
-                'latentCode'  : 0.001,
+                'latentCode'  : 0,
                 'supervision' : 1
                 }, 
             },
