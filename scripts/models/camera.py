@@ -26,7 +26,7 @@ class cameraPerspective(nn.Module):
         self.R_vertx2blobj = torch.Tensor(
                           [[[1, 0, 0],
                             [0, 0,-1],
-                            [0, 1, 0]]]).double()
+                            [0, 1, 0]]])
         
     def vertices_visibility(self, vertices: Tensor, faces : Tensor, 
                             camtrans: Tensor):
@@ -70,7 +70,7 @@ class cameraPerspective(nn.Module):
         
         # cast data type
         if vertices.requires_grad:
-            vert = vertices.detech().cpu().double().numpy()
+            vert = vertices.detach().cpu().double().numpy()
         else:
             vert = vertices.cpu().double().numpy()
             
@@ -89,7 +89,7 @@ class cameraPerspective(nn.Module):
         return visIndices
     
     def forward(self, fx, fy, cx, cy, rotation, translation, points, 
-                faces, visibilityOn = True):
+                faces = None, visibilityOn = True, output3d = False):
         '''
         It projects the given meshes to the given camera plane. If visibility 
         is enabled, it will project the visible points only
@@ -139,10 +139,10 @@ class cameraPerspective(nn.Module):
                     batch_size, dim = 0).to(points.device)
                 
             points = torch.einsum(
-                'bji,bmi->bmj', R_vertx2blobj, points)
+                'bji,bmi->bmj', R_vertx2blobj, points.float())
     
         with torch.no_grad():
-            camera_mat = torch.zeros([batch_size, 3, 3], device=points.device).double()
+            camera_mat = torch.zeros([batch_size, 3, 3], device=points.device).float()
 
             camera_mat[:, 0, 0] = fx
             camera_mat[:, 1, 1] = fy
@@ -167,5 +167,8 @@ class cameraPerspective(nn.Module):
             else:
                 pixels.append( img_points[cnt] )
         
+        if output3d:
+            return pixels, visibility, loc_points
+            
         return pixels, visibility
         
