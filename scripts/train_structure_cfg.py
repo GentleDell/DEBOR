@@ -24,7 +24,8 @@ class TrainOptions(object):
         data.add_argument('--MGN_avgPose_path', default='/home/zhantao/Documents/masterProject/DEBOR/body_model/MGN_train_avgPose.npy', help='path to the average pose of SMPL model in training set.')
         data.add_argument('--MGN_avgBeta_path', default='/home/zhantao/Documents/masterProject/DEBOR/body_model/MGN_train_avgBetas.npy', help='path to the average shape of SMPL model in training set.')
         data.add_argument('--MGN_avgTrans_path', default='/home/zhantao/Documents/masterProject/DEBOR/body_model/MGN_train_avgTrans.npy', help='path to the average translation of SMPL model in training set.')
-        data.add_argument('--img_per_object', default=48) 
+        data.add_argument('--img_per_object', default=8) 
+        data.add_argument('--obj_usedImageIdx', nargs="+", default=[0, 6], help='The image id to be used for training.') 
 
         gen = self.parser.add_argument_group('General')
         gen.add_argument('--resume', dest='resume', default=False, action='store_true', help='Resume from checkpoint (Use latest checkpoint by default')
@@ -55,10 +56,10 @@ class TrainOptions(object):
 
         train = self.parser.add_argument_group('Training Options')
         train.add_argument('--num_epochs', type=int, default=50, help='Total number of training epochs')
-        train.add_argument('--batch_size', type=int, default=2, help='Batch size')
-        train.add_argument('--summary_steps', type=int, default=1000, help='Summary saving frequency')
-        train.add_argument('--checkpoint_steps', type=int, default=5000, help='Checkpoint saving frequency')
-        train.add_argument('--test_steps', type=int, default=5000, help='Testing frequency')
+        train.add_argument('--batch_size', type=int, default=4, help='Batch size')
+        train.add_argument('--summary_steps', type=int, default=100, help='Summary saving frequency')
+        train.add_argument('--checkpoint_steps', type=int, default=2000, help='Checkpoint saving frequency')
+        train.add_argument('--test_steps', type=int, default=1000, help='Testing frequency')
         train.add_argument('--num_downsampling', type=int, default=0, help='number of times downsampling the smpl mesh') 
         train.add_argument('--rot_factor', type=float, default=30, help='Random rotation in the range [-rot_factor, rot_factor]') 
         train.add_argument('--noise_factor', type=float, default=0.4, help='Random rotation in the range [-rot_factor, rot_factor]') 
@@ -75,7 +76,7 @@ class TrainOptions(object):
         # for the training of GCN, lr = 1e-3 would be enough, higher lr would not be very helpful
         optim = self.parser.add_argument_group('Optimization')
         optim.add_argument('--adam_beta1', type=float, default=0.9, help='Value for Adam Beta 1')
-        optim.add_argument("--lr", type=float, default=1e-3, help="Learning rate")
+        optim.add_argument("--lr", type=float, default=1e-4, help="Learning rate")
         optim.add_argument("--wd", type=float, default=0, help="Weight decay weight")
         
         return 
