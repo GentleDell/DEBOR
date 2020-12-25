@@ -6,3 +6,4 @@ from .unet import UNet
 from .loss import lossfunc as Loss
 from .camera import cameraPerspective as camera
 from .structures import DEBORNet
+from .regressor import frameVIBE
