@@ -44,6 +44,8 @@ class BaseDataset(Dataset):
         
         self.cameraObj = perspCamera()
         print('**since we predict camera, image flipping is disabled**')
+        print('**since we only predict body rot, image rot is disabled**')
+        print('**all params are under the original coordinate sys**')
         _, self.smplMesh, _, _ = read_Obj(self.options.smpl_objfile_path)
         
         self.obj_dir = sorted( glob(pjn(options.mgn_dir, '*')) )
@@ -80,10 +82,14 @@ class BaseDataset(Dataset):
             
             # read images and rendering settings
             for path_to_image in sorted( glob( pjn(obj, 'rendering/*smpl_registered.png')) ):
-                                
-                self.imgname.append( path_to_image )
+                # control the pose to be used for training                                 
                 cameraPath, lightPath = path_to_image.split('/')[-1].split('_')[:2]
                 cameraIdx, lightIdx = int(cameraPath[6:]), int(lightPath[5:])
+                if self.options.obj_usedImageIdx is not None:
+                    if cameraIdx not in self.options.obj_usedImageIdx:
+                        continue
+                    
+                self.imgname.append( path_to_image )
                 
                 path_to_rendering = '/'.join(path_to_image.split('/')[:-1])
                 with open( pjn( path_to_rendering,'camera%d_boundingbox.txt'%(cameraIdx)) ) as f:
@@ -207,9 +213,10 @@ class BaseDataset(Dataset):
 
         '''
         SMPLparams = self.smplGTParas[index//self.options.img_per_object]
-        jointsPose = rot6d_to_axisAngle(SMPLparams['pose']).flatten()
+        jointsPose = rot6d_to_axisAngle(SMPLparams['pose']).flatten().float()
         
         # load SMPL parameters and model; transform vertices and joints.
+        # tried the official imp, the same as the one we use
         SMPLvert_posed, joints = generateSMPLmesh(
                 self.options.smpl_model_path, jointsPose, SMPLparams['betas'], 
                 SMPLparams['trans'], asTensor=True)
@@ -237,9 +244,9 @@ class BaseDataset(Dataset):
             fy=torch.tensor(camera['intrinsic'][1,1])[None,None,None], 
             cx=torch.tensor(camera['intrinsic'][0,2])[None,None,None], 
             cy=torch.tensor(camera['intrinsic'][1,2])[None,None,None], 
-            rotation=torch.tensor(camera['extrinsic'][:,:3])[None],
-            translation=torch.tensor(camera['extrinsic'][:,-1])[None], 
-            points=(SMPLvert_posed + disp)[None].double(), 
+            rotation=torch.tensor(camera['extrinsic'][:,:3])[None].float(),
+            translation=torch.tensor(camera['extrinsic'][:,-1])[None].float(), 
+            points=(SMPLvert_posed + disp)[None], 
             faces=torch.tensor(self.smplMesh).int()[None], 
             visibilityOn = True)
         
@@ -268,7 +275,7 @@ class BaseDataset(Dataset):
         rot = 0             # rotation
         sc = 1              # scaling
         if self.split == 'train':
-            # We flip with probability 1/2
+            # We flip with probability 1/2, now 0
             if np.random.uniform() <= 0.0:
                 flip = 1
 	    
@@ -284,8 +291,8 @@ class BaseDataset(Dataset):
             # in the area [1-scaleFactor,1+scaleFactor]
             sc = min(1+self.options.scale_factor,
                     max(1-self.options.scale_factor, np.random.randn()*self.options.scale_factor+1))
-            # but it is zero with probability 3/5
-            if np.random.uniform() <= 0.6:
+            # but it is zero with probability 3/5, now 1
+            if np.random.uniform() <= 1:
                 rot = 0
 	
         return flip, pn, rot, sc
