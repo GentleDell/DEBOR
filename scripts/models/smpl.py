@@ -101,16 +101,16 @@ class SMPL(nn.Module):
             
         return v
 
-    # def get_joints(self, vertices):
-    #     """
-    #     This method is used to get the joint locations from the SMPL mesh
-    #     Input:
-    #         vertices: size = (B, 6890, 3)
-    #     Output:
-    #         3D joints: size = (B, 38, 3)
-    #     """
-    #     joints = torch.einsum('bik,ji->bjk', [vertices, self.J_regressor])
-    #     joints_extra = torch.einsum('bik,ji->bjk', [vertices, self.J_regressor_extra])
-    #     joints = torch.cat((joints, joints_extra), dim=1)
-    #     joints = joints[:, cfg.JOINTS_IDX]
-    #     return joints
+    def get_joints(self, vertices):
+        """
+        This method is used to get the joint locations from the SMPL mesh
+        Input:
+            vertices: size = (B, 6890, 3)
+        Output:
+            3D joints: size = (B, 38, 3)
+        """
+        joints = torch.einsum('bik,ji->bjk', [vertices, self.J_regressor])
+        # joints_extra = torch.einsum('bik,ji->bjk', [vertices, self.J_regressor_extra])
+        # joints = torch.cat((joints, joints_extra), dim=1)
+        # joints = joints[:, cfg.JOINTS_IDX]
+        return joints
