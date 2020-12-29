@@ -36,6 +36,10 @@ def visbodyPrediction(prediction, options, device = 'cuda', ind = 0):
     
     prediction = prediction[0]
     
+    # displacement means and std
+    dispPara = torch.Tensor(np.load(options.MGN_dispMeanStd_path)).to(device)
+    
+    # smpl Mesh
     mesh = Mesh(options, options.num_downsampling)
     faces = torch.cat( options.batch_size * [
                             mesh.faces.to(device)[None]
@@ -45,7 +49,11 @@ def visbodyPrediction(prediction, options, device = 'cuda', ind = 0):
     smpl = SMPL(options.smpl_model_path, device)
     body = smpl(prediction['theta'][ind][3:75][None], prediction['theta'][ind][75:][None]).cpu()
     
-    MeshPred = create_fullO3DMesh(body[0], faces.cpu()[0])    
+    if "verts_disp" in prediction.keys():
+        disp = (prediction['verts_disp'][ind]*dispPara[1]*10+dispPara[0]).cpu()
+        body = body + disp
+        
+    MeshPred = create_fullO3DMesh(body[ind], faces.cpu()[0])    
     o3d.visualization.draw_geometries([MeshPred])
     
     
@@ -188,7 +196,7 @@ def inference_structure(pathCkp: str, pathImg: str = None,
         options = namedtuple('options', options.keys())(**options)
     
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    # mesh = Mesh(options, options.num_downsampling)
+    mesh = Mesh(options, options.num_downsampling)
     
     # load average pose and shape and convert to camera coodinate;
     # avg pose is decided by the image id we use for training (0-11) 
@@ -216,9 +224,12 @@ def inference_structure(pathCkp: str, pathImg: str = None,
     # Create model
     model = frameVIBE(
             options.smpl_model_path, 
+            mesh,
             avgPose,
             avgBeta,
-            avgCam
+            avgCam,
+            options.num_channels,
+            options.num_layers
             ).to(device)
     
     optimizer = torch.optim.Adam(params=list(model.parameters()))
@@ -277,7 +288,7 @@ if __name__ == '__main__':
     
     path_to_SMPL  = '../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl' 
     path_to_chkpt = '../logs/local/structure'
-    path_to_object= '../datasets/MGN_brighter_augmented/125611499115817_pose95/'
+    path_to_object= '../datasets/MGN_brighter_augmented/125611487366942_pose52/'
     path_to_image = pjn(path_to_object, 'rendering/camera0_light0_smpl_registered.png')
     
     inf_body = True

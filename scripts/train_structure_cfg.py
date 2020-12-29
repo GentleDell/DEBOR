@@ -24,6 +24,7 @@ class TrainOptions(object):
         data.add_argument('--MGN_avgPose_path', default='/home/zhantao/Documents/masterProject/DEBOR/body_model/MGN_train_avgPose.npy', help='path to the average pose of SMPL model in training set.')
         data.add_argument('--MGN_avgBeta_path', default='/home/zhantao/Documents/masterProject/DEBOR/body_model/MGN_train_avgBetas.npy', help='path to the average shape of SMPL model in training set.')
         data.add_argument('--MGN_avgTrans_path', default='/home/zhantao/Documents/masterProject/DEBOR/body_model/MGN_train_avgTrans.npy', help='path to the average translation of SMPL model in training set.')
+        data.add_argument('--MGN_dispMeanStd_path', default='/home/zhantao/Documents/masterProject/DEBOR/body_model/displacement_mean_std.npy', help='path to the mean and std of displacement.')
         data.add_argument('--img_per_object', default=8) 
         data.add_argument('--obj_usedImageIdx', nargs="+", default=[0, 6], help='The image id to be used for training.') 
 
@@ -56,10 +57,10 @@ class TrainOptions(object):
 
         train = self.parser.add_argument_group('Training Options')
         train.add_argument('--num_epochs', type=int, default=50, help='Total number of training epochs')
-        train.add_argument('--batch_size', type=int, default=4, help='Batch size')
+        train.add_argument('--batch_size', type=int, default=2, help='Batch size')
         train.add_argument('--summary_steps', type=int, default=100, help='Summary saving frequency')
-        train.add_argument('--checkpoint_steps', type=int, default=2000, help='Checkpoint saving frequency')
-        train.add_argument('--test_steps', type=int, default=1000, help='Testing frequency')
+        train.add_argument('--checkpoint_steps', type=int, default=1000, help='Checkpoint saving frequency')
+        train.add_argument('--test_steps', type=int, default=2, help='Testing frequency')
         train.add_argument('--num_downsampling', type=int, default=0, help='number of times downsampling the smpl mesh') 
         train.add_argument('--rot_factor', type=float, default=30, help='Random rotation in the range [-rot_factor, rot_factor]') 
         train.add_argument('--noise_factor', type=float, default=0.4, help='Random rotation in the range [-rot_factor, rot_factor]') 

@@ -22,7 +22,7 @@ Implementation of dressed expressive body reconstruction (DEBOR)
 - open3d  (>= 0.11.2)
 - pyopengl
 - mesh https://github.com/MPI-IS/mesh
-
+- pytorch3D
 ## Thirdparty
 
 - smpl_webuser
