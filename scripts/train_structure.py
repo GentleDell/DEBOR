@@ -23,11 +23,12 @@ import numpy as np
 import open3d as o3d
 
 from dataset import MGNDataset
-from models.loss import VIBELoss
-from utils import Mesh, BaseTrain, CheckpointDataLoader
+from utils import Mesh, BaseTrain, CheckpointDataLoader, renderer
 from utils.mesh_util import create_fullO3DMesh
+from utils.vis_util import read_Obj
 from models import SMPL, frameVIBE
 from models import camera as perspCamera
+from models.loss import VIBELoss
 from models.structures_options import structure_options
 from models.geometric_layers import rot6d_to_axisAngle, rot6d_to_rotmat
 from models.geometric_layers import axisAngle_to_Rot6d, rotationMatrix_to_axisAngle
@@ -55,19 +56,32 @@ class trainer(BaseTrain):
                     pin_memory  = self.options.pin_memory,
                     shuffle     = False)
 
-        # Create Mesh (graph) object
+        # Create SMPL Mesh (graph) object for GCN
         self.mesh = Mesh(self.options, self.options.num_downsampling)
         self.faces = torch.cat( self.options.batch_size * [
                                 self.mesh.faces.to(self.device)[None]
                                 ], dim = 0 )
         self.faces = self.faces.type(torch.LongTensor).to(self.device)
         
-        # Create SMPL mesh object and edges
+        # Create SMPL blending model and edges
         self.smpl = SMPL(self.options.smpl_model_path, self.device)
         # self.smplEdge = torch.Tensor(np.load(self.options.smpl_edges_path)) \
         #                 .long().to(self.device)
-                      
+        
+        # read SMPL .bj file to get uv coordinates
+        _, self.smpl_tri_ind, uv_coord, tri_uv_ind = read_Obj(self.options.smpl_objfile_path)
+        uv_coord[:, 1] = 1 - uv_coord[:, 1]
+        expUV = uv_coord[tri_uv_ind.flatten()]
+        unique, index = np.unique(self.smpl_tri_ind.flatten(), return_index = True)
+        self.smpl_verts_uvs = torch.as_tensor(expUV[index,:]).float().to(self.device)
+        self.smpl_tri_ind   = torch.as_tensor(self.smpl_tri_ind).to(self.device)
+        
+        # camera for projection 
         self.perspCam = perspCamera() 
+
+        # mean and std of displacements
+        self.dispPara = \
+            torch.Tensor(np.load(self.options.MGN_dispMeanStd_path)).to(self.device)
         
         # load average pose and shape and convert to camera coodinate;
         # avg pose is decided by the image id we use for training (0-11) 
@@ -94,9 +108,14 @@ class trainer(BaseTrain):
         
         self.model = frameVIBE(
             self.options.smpl_model_path, 
+            self.mesh,                
             self.avgPose,
             self.avgBeta,
-            self.avgCam
+            self.avgCam,
+            self.options.num_channels,
+            self.options.num_layers ,  
+            self.smpl_verts_uvs,
+            self.smpl_tri_ind
             ).to(self.device)
             
         # Setup a optimizer for models
@@ -106,12 +125,12 @@ class trainer(BaseTrain):
             betas=(self.options.adam_beta1, 0.999),
             weight_decay=self.options.wd)
         
-        #60, 30, 60, 0.001
         self.criterion = VIBELoss(
-            e_loss_weight=1,
-            e_3d_loss_weight=10,
-            e_pose_loss_weight=10,
-            e_shape_loss_weight=0.1,
+            e_loss_weight=1,           # for kp 2d
+            e_3d_loss_weight=10,       # for kp 3d, bvt, dsp
+            e_pose_loss_weight=10,     # for body pose parameters
+            e_shape_loss_weight=0.1,   # for body shape parameters
+            e_tex_loss_weight=1,       # for uv image 
             d_motion_loss_weight=1
             )
         
@@ -176,24 +195,21 @@ class trainer(BaseTrain):
             visibilityOn = False,
             output3d = True
             )
-        vertices = vertices.float()
+        vertices = (vertices - input_batch['cameraGT']['t'][:,None,:]).float()
         
-        # convert displacement to the current camera coordinate
-        _,_,dispGT = self.perspCam(
-            fx = input_batch['cameraGT']['f_rot'][:,0,0], 
-            fy = input_batch['cameraGT']['f_rot'][:,0,0], 
-            cx = 112, 
-            cy = 112, 
-            rotation = rot6d_to_rotmat(input_batch['cameraGT']['f_rot'][:,0,1:]).float(),  
-            translation = input_batch['cameraGT']['t'][:,None,:].float(), 
-            points = input_batch['meshGT']['displacement'],
-            visibilityOn = False,
-            output3d = True
-            )
-        dispGT = (dispGT - input_batch['cameraGT']['t'][:,None,:]).float() # remove shifts
+        # compute the displacements (mag * normal)
+        dispGT = []
+        for cnt in range(vertices.shape[0]):
+            o3dBody = create_fullO3DMesh(vertices[cnt].cpu(), self.faces[cnt].cpu()) 
+            normals = torch.as_tensor(o3dBody.compute_vertex_normals().vertex_normals).float().to(self.device)
+            dispMag = input_batch['meshGT']['displacement'][cnt].norm(dim=1)
+            dispGT.append( dispMag[:,None]*normals )
+            
+        # normalize the disp; divide by 10 is to limit the scale (outliers);
+        dispGT = (torch.stack(dispGT, dim = 0)-self.dispPara[0])/self.dispPara[1]/10
         
-        # proove that the 
-        # points = dispGT + vertices
+        # prove the correctness of coord sys 
+        # points = (dispGT*self.dispPara[1]*10+self.dispPara[0]) + vertices
         # localcam = perspCamera(smpl_obj = False)    # disable additional trans
         # img_points, _ = localcam(
         #     fx = input_batch['cameraGT']['f_rot'][:,0,0], 
@@ -212,17 +228,40 @@ class trainer(BaseTrain):
         # img[img_points[visind][:,1].round().long(), img_points[visind][:,0].round().long()] = 1
         # plt.imshow(img)
         
+        # self.renderer = renderer(batch_size = 1)
+        # if input_batch['isAug'][0]:
+        #     tex = input_batch['UVmapGT'].float()[0].flip(dims=(0,))
+        # images = self.renderer(
+        #     verts = vertices[0][None],
+        #     faces = self.faces[0][None],
+        #     verts_uvs = self.smpl_verts_uvs[None].repeat_interleave(2, dim=0)[0][None],
+        #     faces_uvs = self.smpl_tri_ind[None].repeat_interleave(2, dim=0)[0][None],
+        #     tex_image = tex[None],
+        #     R = torch.eye(3)[None].repeat_interleave(2, dim = 0).to('cuda')[0][None],
+        #     T = input_batch['cameraGT']['t'].float()[0][None],
+        #     f = input_batch['cameraGT']['f_rot'][:,0,0][:,None].float()[0][None],
+        #     C = torch.ones([2,2]).to('cuda')[0][None]*112,
+        #     imgres = 224
+        # )
+        
         GT = {'img' : input_batch['img'].float(),
-              'disp': dispGT.float(),
-              'text': input_batch['meshGT']['texture'].float(),
-              'camera': input_batch['cameraGT'],
+              'imgname' : input_batch['imgname'],
+              'isAug': input_batch['isAug'],
+              
+              'text': input_batch['meshGT']['texture'].float(),    # verts tex
+              'camera': input_batch['cameraGT'],                   # wcd 
               'indexMap': input_batch['indexMapGT'],
-              'theta': smplGT.float(),               
+              'theta': smplGT.float(),        
+              
               # joints_2d is col, row == x, y; joints_3d is x,y,z
               'target_2d': joints_2d.float(),
               'target_3d': joints_3d.float(),
               'target_bvt': vertices.float(),   # body vertices
               'target_dp': dispGT.float(),
+              # 'target_dvt': (vertices + \
+              #    (dispGT*self.dispPara[1]*10+self.dispPara[0])).float()    # vertices 
+              
+              'target_uv': input_batch['UVmapGT'].float()
               }
             
         return GT
@@ -235,7 +274,7 @@ class trainer(BaseTrain):
         GT = self.convert_GT(input_batch)
         
         # forward pass
-        pred = self.model(input_batch['img'])
+        pred = self.model(GT['img'])
         
         # loss
         gen_loss, loss_dict = self.criterion(
@@ -247,16 +286,17 @@ class trainer(BaseTrain):
         out_args = loss_dict
         out_args['loss'] = gen_loss
         out_args['prediction'] = pred 
-        
+
         return out_args
 
     def test(self):
         """"Testing process"""
         self.model.eval()    
         
-        test_loss = 0
+        test_loss, test_tex_loss = 0, 0
         test_loss_pose, test_loss_shape = 0, 0
         test_loss_kp_2d, test_loss_kp_3d = 0, 0
+        test_loss_dsp_3d, test_loss_bvt_3d = 0, 0
         for step, batch in enumerate(tqdm(self.test_data_loader, desc='Test',
                                           total=len(self.test_ds) // self.options.batch_size,
                                           initial=self.test_data_loader.checkpoint_batch_idx),
@@ -288,26 +328,34 @@ class trainer(BaseTrain):
                     )
                 # save for comparison
                 if step == 0:
-                    self.save_sample(batch_toDEV, pred[0])
+                    self.save_sample(GT, pred[0])
                 
             test_loss += gen_loss
             test_loss_pose  += loss_dict['loss_pose']
             test_loss_shape += loss_dict['loss_shape']
             test_loss_kp_2d += loss_dict['loss_kp_2d']
             test_loss_kp_3d += loss_dict['loss_kp_3d']
+            test_loss_bvt_3d += loss_dict['loss_bvt_3d']
+            test_loss_dsp_3d += loss_dict['loss_dsp_3d']
+            test_tex_loss += loss_dict['loss_tex']
                         
         test_loss = test_loss/len(self.test_data_loader)
         test_loss_pose  = test_loss_pose/len(self.test_data_loader)
         test_loss_shape = test_loss_shape/len(self.test_data_loader)
         test_loss_kp_2d = test_loss_kp_2d/len(self.test_data_loader)
         test_loss_kp_3d = test_loss_kp_3d/len(self.test_data_loader)
-        
+        test_loss_bvt_3d = test_loss_bvt_3d/len(self.test_data_loader)
+        test_loss_dsp_3d = test_loss_dsp_3d/len(self.test_data_loader)
+        test_tex_loss = test_tex_loss/len(self.test_data_loader)
         
         lossSummary = {'test_loss': test_loss, 
                        'test_loss_pose' : test_loss_pose,
                        'test_loss_shape' : test_loss_shape,
                        'test_loss_kp_2d' : test_loss_kp_2d,
-                       'test_loss_kp_3d' : test_loss_kp_3d
+                       'test_loss_kp_3d' : test_loss_kp_3d,
+                       'test_loss_bvt_3d': test_loss_bvt_3d,
+                       'test_loss_dsp_3d': test_loss_dsp_3d,
+                       'test_tex_loss': test_tex_loss
                        }
         self.test_summaries(lossSummary)
         
@@ -315,41 +363,64 @@ class trainer(BaseTrain):
         """Saving a sample for visualization and comparison"""
         folder = pjn(self.options.summary_dir, 'test/')
         _input = pjn(folder, 'input_image.png')
-        batchs = self.options.batch_size
+        # batchs = self.options.batch_size
         
         # save the input image, if not saved
         if not isfile(_input):
             plt.imsave(_input, data['img'][ind].cpu().permute(1,2,0).clamp(0,1).numpy())
+            
+        # overlap the prediction to the real image
+        save_renderer = renderer(batch_size = 1)
+        predTrans = torch.stack(
+            [prediction['theta'][ind, 1],
+             prediction['theta'][ind, 2],
+             2 * 1000. / (224. * prediction['theta'][ind, 0] + 1e-9)], dim=-1)
+        tex = (prediction['tex_image'][ind][None], 
+               prediction['tex_image'][ind].flip(dims=(0,))[None])\
+              [data['isAug'][ind]]
+        pred_img = save_renderer(
+            verts = prediction['verts'][ind][None],
+            faces = self.faces[ind][None],
+            verts_uvs = self.smpl_verts_uvs[None],
+            faces_uvs = self.smpl_tri_ind[None],
+            tex_image = tex,
+            R = torch.eye(3)[None].to('cuda'),
+            T = predTrans,
+            f = torch.ones([1,1]).to('cuda')*1000,
+            C = torch.ones([1,2]).to('cuda')*112,
+            imgres = 224)
+        overlayimg = 0.9*pred_img[0,:,:,:3] + 0.1*data['img'][ind].permute(1,2,0)
+        save_path = pjn(folder,'overlay_%s_iters%d.png'%(data['imgname'][ind].split('/')[-1][:-4], self.step_count))
+        plt.imsave(save_path, (overlayimg.clamp(0, 1)*255).cpu().numpy().astype('uint8'))
+        save_path = pjn(folder,'tex_%s_iters%d.png'%(data['imgname'][ind].split('/')[-1][:-4], self.step_count))
+        plt.imsave(save_path, (pred_img[0,:,:,:3].clamp(0, 1)*255).cpu().numpy().astype('uint8'))
         
         # save body pose if available
-        bodyList = {}
+        # bodyList = {}
         
-        # create GT undressed body vetirces
-        jointsRot = rot6d_to_axisAngle(
-            data['smplGT']['pose'][ind].to(torch.float)[None,:])
-        bodyList['bodyGT'] = self.smpl(
-            jointsRot[None].reshape(1, -1), 
-            data['smplGT']['betas'][ind].to(torch.float)[None,:], 
-            data['smplGT']['trans'][ind].to(torch.float)[None,:]).cpu()
+        # # create GT undressed body vetirces. Do not use orignal beta and rot
+        # # since the global orientation is incorrect
+        # bodyList['bodyGT'] = data['target_bvt'].cpu()
         
-        # create predicted undressed body vetirces
-        bodyList['bodyPred'] = self.smpl(
-            prediction['theta'][ind][3:75][None],
-            prediction['theta'][ind][75:][None]).cpu()
-
-        # bodyList['bodyGT_GTCloth'] = \
-        #     bodyList['bodyGT'] + data['disp'][ind].cpu()[None,:]      
-        # bodyList['bodyGT_PredCloth'] = \
-        #     bodyList['bodyGT'] + prediction['disp'][ind].cpu()[None,:]          
-        # bodyList['bodyPred_PredCloth']= \
-        #     bodyList['bodyPred']+prediction['disp'][ind].cpu()[None,:]  
+        # # create predicted undressed body vetirces
+        # bodyList['bodyPred'] = self.smpl(
+        #     prediction['theta'][ind][3:75][None],
+        #     prediction['theta'][ind][75:][None]).cpu()
+        
+        # # consider cloth
+        # target_dp = (data['target_dp'][ind]*self.dispPara[1]*10+self.dispPara[0]).cpu()[None,:] 
+        # predict_dp = (prediction['verts_disp'][ind]*self.dispPara[1]*10+self.dispPara[0]).cpu()[None,:] 
+        
+        # bodyList['bodyGT_GTCloth'] = bodyList['bodyGT'] + target_dp  
+        # bodyList['bodyGT_PredCloth'] = bodyList['bodyGT'] + predict_dp         
+        # bodyList['bodyPred_PredCloth']= bodyList['bodyPred'] + predict_dp
                             
-        # Create meshes and save them
-        for key, val in bodyList.items():
-            Meshbody = create_fullO3DMesh(val[0], self.faces.cpu()[0])    
-            savepath = pjn(folder,'%s_iters%d__%s.obj'%\
-                    (data['imgname'][ind].split('/')[-1][:-4], self.step_count, key))
-            o3d.io.write_triangle_mesh(savepath, Meshbody)
+        # # Create meshes and save them
+        # for key, val in bodyList.items():
+        #     Meshbody = create_fullO3DMesh(val[0], self.faces.cpu()[0])    
+        #     savepath = pjn(folder,'%s_iters%d__%s.obj'%\
+        #             (data['imgname'][ind].split('/')[-1][:-4], self.step_count, key))
+        #     o3d.io.write_triangle_mesh(savepath, Meshbody)
 
 
 if __name__ == '__main__':
