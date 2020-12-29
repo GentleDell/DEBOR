@@ -76,8 +76,8 @@ class BaseDataset(Dataset):
         
         # load datatest
         self. objname, self.imgname, self.center, self.scale = [], [], [], []
-        self.camera, self.lights= [], []      
-        self.meshGT, self.smplGTParas, self.UVmapGT = [], [], []
+        self.camera, self.lights = [], []      
+        self.meshGT, self.smplGTParas, self.UVmapGT, self.isAug = [],[],[],[]
         for obj in self.obj_dir:
             
             # read images and rendering settings
@@ -134,6 +134,8 @@ class BaseDataset(Dataset):
             
             # read smpl parameters 
             #     The 6D rotation representation is used here.
+            # be careful to the global rotation (first 3 or 6), it is under
+            # the orignal coordinate system.
             registration = pickle.load(open( pjn(obj, 'registration.pkl'), 'rb'),  encoding='iso-8859-1')
             jointsRot6d  = axisAngle_to_Rot6d(torch.as_tensor(registration['pose'].reshape([-1, 3])))
             bodyBetas    = (registration['betas'], registration['betas'][0])[len(registration['betas'].shape) == 2]
@@ -143,10 +145,13 @@ class BaseDataset(Dataset):
                                      'trans': torch.as_tensor(bodyTrans) })
             
             # read and resize UV texture map same for the segmentation 
+            isAug = False
             UV_textureMap = cv2.imread( pjn(obj, 'registered_tex.jpg') )[:,:,::-1]/255.0
             UV_textureMap = cv2.resize(UV_textureMap, (self.options.img_res, self.options.img_res), cv2.INTER_CUBIC)
             if "_pose" in obj.split('/')[-1]:
-                UV_textureMap = np.flip(UV_textureMap, axis = 0)
+                isAug = True
+                UV_textureMap = np.flip(UV_textureMap, axis = 0).copy()
+            self.isAug.append(isAug)
             self.UVmapGT.append(UV_textureMap)
             
             self.objname.append(obj.split('/')[-1])
@@ -173,7 +178,7 @@ class BaseDataset(Dataset):
         # plt.imshow(img/255)
         
         # self.getIndicesMap(1994, camera = None)
-        # self.__getitem__(6)
+        # self.__getitem__(10)
               
     def indicesToCode(self, indices):
         '''
@@ -322,7 +327,8 @@ class BaseDataset(Dataset):
     def camera_trans(self, img, center, scale, rot, flip, cameraOrig, options):
         """Generate GT camera corresponding to the augmented image"""
         
-        assert flip == 0, 'camera GT does not support flipping yet.'
+        assert flip == 0 and rot == 0,\
+            'We do not supoprt image rotation and flip in this task'
         
         # In crop, if there is rotation it would padd the image to the length
         # of diagnal, so we should consider the effect. Besides, it uses scipy 
@@ -408,7 +414,8 @@ class BaseDataset(Dataset):
         
         item['meshGT'] = self.meshGT[ index//self.options.img_per_object ]
         item['smplGT'] = self.smplGTParas[ index//self.options.img_per_object ]
-        # item['UVmapGT']= self.UVmapGT[ index//self.options.img_per_object ]    # no need to touch the GT
+        item['UVmapGT']= self.UVmapGT[ index//self.options.img_per_object ]
+        item['isAug']  = self.isAug[ index//self.options.img_per_object ]
         
         GTcamera = self.camera_trans(
             img, center, sc*scale, rot,flip,self.camera[index],self.options)
