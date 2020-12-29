@@ -34,7 +34,7 @@ def read_Obj(path):
                   f  v1/vt1/vn1 v2/vt2/vn2 v3/vt3/vn3
          v1v2v3 are 3 indices to the 'v' domain to find the 3 points defining
          a triangular facet;
-         vt1vt2vt3 are 3 indices to the 'vt' domain to fine the 3 uv coord 
+         vt1vt2vt3 are 3 indices to the 'vt' domain to find the 3 uv coord 
          defining the color of the 3 vertices.
     
     '''
