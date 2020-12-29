@@ -75,15 +75,12 @@ class unet_core(nn.Module):
     '''
     Pytorch reimplementation of the UNet used in tex2shape with some changes.
     '''
-    def __init__(self, dropRate: float = 0, batchNormalization: bool = True, 
-                 conditionCodes: int = 0):
+    def __init__(self, dropRate: float = 0, batchNormalization: bool = True):
         super(unet_core, self).__init__()
 
         base_depth = 64
         kernelSize = 4
-        
-        self.conditionDepth = conditionCodes
-        
+                
         # structure for downsampling 
         self.d1 = downsampleLayer(3, base_depth, kernelSize)
         self.d2 = downsampleLayer(base_depth  , base_depth*2, kernelSize, bn=True)
@@ -93,15 +90,14 @@ class unet_core(nn.Module):
         self.d6 = downsampleLayer(base_depth*8, base_depth*8, kernelSize, bn=True)        
         
         # structure for upsampling
-        self.u1 = upsampleLayer(base_depth*8+self.conditionDept, base_depth*8,    # add condition codes if required
-                                kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
+        self.u1 = upsampleLayer(base_depth*8, base_depth*8,  kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
         self.u2 = upsampleLayer(base_depth*16, base_depth*8, kernelSize-1, paddings=0, dropout_rate=dropRate, bn=batchNormalization) 
         self.u3 = upsampleLayer(base_depth*16, base_depth*4, kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
-        self.u4 = upsampleLayer(base_depth*4, base_depth*2, kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
-        self.u5 = upsampleLayer(base_depth*2, base_depth  , kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
+        self.u4 = upsampleLayer(base_depth*8, base_depth*2, kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
+        self.u5 = upsampleLayer(base_depth*4, base_depth  , kernelSize-1, dropout_rate=dropRate, bn=batchNormalization)
         self.u6 = nn.Upsample(scale_factor=2, mode='nearest')
         
-    def forward(self, d0, conditionCodes = None):
+    def forward(self, d0):
         
         d1 = self.d1(d0)    # 112x112x64
         d2 = self.d2(d1)    # 56x56x128
@@ -110,18 +106,13 @@ class unet_core(nn.Module):
         d5 = self.d5(d4)    # 8x8x512
         d6 = self.d6(d5)    # 4x4x512
         
-        # add condition codes if given and required
-        if self.conditionDepth == conditionCodes:
-            d6 = d6 + conditionCodes
-        
-        # only keep the 2 low-level connections
         u1 = self.u1(d6, d5)    # 8x8x1024
         u2 = self.u2(u1, d4)    # 14x14x1024
-        u3 = self.u3(u2)        # 28x28x256
-        u4 = self.u4(u3)        # 56x56x128
-        u5 = self.u5(u4)        # 112x112x64
+        u3 = self.u3(u2, d3)    # 28x28x512
+        u4 = self.u4(u3, d2)    # 56x56x256
+        u5 = self.u5(u4, d1)    # 112x112x128
         
-        u6 = self.u6(u5)        # 224x224x64
+        u6 = self.u6(u5)        # 224x224x128
         
         return u6
           
@@ -148,7 +139,7 @@ class UNet(nn.Module):
         self.bn = bn
         
         self.unet_core = unet_core(dropRate=dropout_rate, batchNormalization=bn)
-        self.outLayer = nn.Conv2d( 64, output_dims, kernel_size, padding=1)
+        self.outLayer = nn.Conv2d( 128, output_dims, kernel_size, padding=1)
         
     def forward(self, x, pose = None):
         

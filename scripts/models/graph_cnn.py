@@ -12,12 +12,14 @@ from .resnet import resnet50
 
 class GraphCNN(nn.Module):
     
-    def __init__(self, A, ref_vertices, num_layers=5, num_channels=512):
+    def __init__(self, A, ref_vertices, infeature=2048, num_layers=5, num_channels=512):
         super(GraphCNN, self).__init__()
         self.A = A
         self.ref_vertices = ref_vertices
         self.resnet = resnet50(pretrained=True)
-        layers = [GraphLinear(3 + 2048, 2 * num_channels)]
+        self.infeature = infeature
+        
+        layers = [GraphLinear(3 + infeature, 2 * num_channels)]
         layers.append(GraphResBlock(2 * num_channels, num_channels, A))
         for i in range(num_layers):
             layers.append(GraphResBlock(num_channels, num_channels, A))
@@ -28,14 +30,13 @@ class GraphCNN(nn.Module):
                                    GraphLinear(32, 3))
         self.gc = nn.Sequential(*layers)
 
-    def forward(self, image, pose = None):
+    def forward(self, image_enc, pose = None):
         """Forward pass
         Inputs:
-            image: size = (B, 3, 224, 224)
+            x: size = (B, self.infeature)
             pose : size = (B, 1, 24)
         Returns:
-            Regressed (subsampled) non-parametric shape: size = (B, 1723, 3)
-            Weak-perspective camera: size = (B, 3)
+            Regressed non-parametric displacements: size = (B, 6890, 3)
         """
         
         if pose is not None:
@@ -46,12 +47,12 @@ class GraphCNN(nn.Module):
                   '4. try to support Sizer first')
             raise NotImplementedError('combining pose is not implemented yet, detials see above info')
         
-        batch_size = image.shape[0]
+        batch_size = image_enc.shape[0]
         ref_vertices = self.ref_vertices[None, :, :].expand(batch_size, -1, -1)
-        image_resnet = self.resnet(image)
-        image_enc = image_resnet.view(batch_size, 2048, 1).expand(-1, -1, ref_vertices.shape[-1])
-        x = torch.cat([ref_vertices, image_enc], dim=1)
+
+        x = image_enc.view(batch_size, self.infeature, 1).expand(-1, -1, ref_vertices.shape[-1])
+        x = torch.cat([ref_vertices, x], dim=1)
         x = self.gc(x)
         shape = self.shape(x).permute(0,2,1)
-        # camera = self.camera_fc(x).view(batch_size, 3)
+        
         return shape
