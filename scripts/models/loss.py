@@ -276,6 +276,7 @@ class VIBELoss(nn.Module):
             e_3d_loss_weight=30.,
             e_pose_loss_weight=1.,
             e_shape_loss_weight=0.001,
+            e_tex_loss_weight=1,
             d_motion_loss_weight=1.,
             device='cuda',
     ):
@@ -284,12 +285,15 @@ class VIBELoss(nn.Module):
         self.e_3d_loss_weight = e_3d_loss_weight
         self.e_pose_loss_weight = e_pose_loss_weight
         self.e_shape_loss_weight = e_shape_loss_weight
+        self.e_tex_loss_weight = e_tex_loss_weight
         self.d_motion_loss_weight = d_motion_loss_weight
 
         self.device = device
         self.criterion_shape = nn.L1Loss().to(self.device)
         self.criterion_keypoints = nn.MSELoss(reduction='none').to(self.device)
+        self.criterion_displace  = nn.L1Loss().to(self.device)    # MSELoss would smoothen details
         self.criterion_regr = nn.MSELoss().to(self.device)
+        self.criterion_tex  = nn.L1Loss().to(self.device)
 
     def forward(
             self,
@@ -302,28 +306,40 @@ class VIBELoss(nn.Module):
             motion_discriminator=None,
     ):
 
-        real_2d = data_2d
-        real_3d = data_3d['target_3d']
+        real_2d = data_2d                   # 24 joints on image plane
+        real_3d = data_3d['target_3d']      # 24 joints in camera coordinate
+        real_bv = data_3d['target_bvt']     # 6890 vertices in camera coordinate 
+        real_dp = data_3d['target_dp']      # 6890 displacement in ccd
+        real_uv = data_3d['target_uv']
         data_3d_theta = data_3d['theta']
 
         preds = generator_outputs[0]
         pred_j3d = preds['kp_3d']
         pred_j2d = preds['kp_2d']
+        pred_bvt = preds['verts']
+        pred_dsp = preds['verts_disp']
+        pred_tex = preds['tex_image']
         pred_theta = preds['theta']
 
         # <======== Generator Loss
         loss_kp_2d =  self.keypoint_loss(pred_j2d, real_2d, openpose_weight=1., gt_weight=1.) * self.e_loss_weight
-
-        loss_kp_3d = self.keypoint_3d_loss(pred_j3d, real_3d)
-        loss_kp_3d = loss_kp_3d * self.e_3d_loss_weight
-
-        real_shape, pred_shape = data_3d_theta[:, 75:], pred_theta[:, 75:]
-        real_pose, pred_pose = data_3d_theta[:, 3:75], pred_theta[:, 3:75]
-
+        loss_kp_3d = self.keypoint_3d_loss(pred_j3d, real_3d) * self.e_3d_loss_weight
+        
+        loss_bvt_3d = self.keypoint_3d_loss(pred_bvt, real_bv) * self.e_3d_loss_weight
+        loss_dsp_3d = self.displacement_loss(pred_dsp, real_dp) * self.e_3d_loss_weight    # as Err_disp << joins and vt 
+        loss_tex_2d = self.tex_loss(pred_tex, real_uv) * self.e_tex_loss_weight
+        
         loss_dict = {
             'loss_kp_2d': loss_kp_2d,
             'loss_kp_3d': loss_kp_3d,
+            'loss_bvt_3d': loss_bvt_3d,
+            'loss_dsp_3d': loss_dsp_3d,
+            'loss_tex': loss_tex_2d
         }
+        
+        real_shape, pred_shape = data_3d_theta[:, 75:], pred_theta[:, 75:]
+        real_pose, pred_pose = data_3d_theta[:, 3:75], pred_theta[:, 3:75]
+        
         if pred_theta.shape[0] > 0:
             loss_pose, loss_shape = self.smpl_losses(pred_pose, pred_shape, real_pose, real_shape)
             loss_shape = loss_shape * self.e_shape_loss_weight
@@ -368,3 +384,16 @@ class VIBELoss(nn.Module):
             loss_regr_pose = torch.FloatTensor(1).fill_(0.).to(self.device)
             loss_regr_betas = torch.FloatTensor(1).fill_(0.).to(self.device)
         return loss_regr_pose, loss_regr_betas
+    
+    def displacement_loss(self, pred_disp, gt_disp):
+        """
+        Compute 3D displacement loss
+        """
+        return self.criterion_displace(pred_disp, gt_disp)
+    
+    def tex_loss(self, pred_tex, gt_tex):
+        """
+        Compute 2D texture map loss
+        """
+        return self.criterion_tex(pred_tex, gt_tex)
+    
