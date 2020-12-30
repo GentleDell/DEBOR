@@ -276,6 +276,7 @@ class VIBELoss(nn.Module):
             e_3d_loss_weight=30.,
             e_pose_loss_weight=1.,
             e_shape_loss_weight=0.001,
+            e_disp_loss_weight = 1,
             e_tex_loss_weight=1,
             d_motion_loss_weight=1.,
             device='cuda',
@@ -285,6 +286,7 @@ class VIBELoss(nn.Module):
         self.e_3d_loss_weight = e_3d_loss_weight
         self.e_pose_loss_weight = e_pose_loss_weight
         self.e_shape_loss_weight = e_shape_loss_weight
+        self.e_disp_loss_weight = e_disp_loss_weight
         self.e_tex_loss_weight = e_tex_loss_weight
         self.d_motion_loss_weight = d_motion_loss_weight
 
@@ -292,8 +294,13 @@ class VIBELoss(nn.Module):
         self.criterion_shape = nn.L1Loss().to(self.device)
         self.criterion_keypoints = nn.MSELoss(reduction='none').to(self.device)
         self.criterion_displace  = nn.L1Loss().to(self.device)    # MSELoss would smoothen details
-        self.criterion_regr = nn.MSELoss().to(self.device)
+        self.criterion_regr = nn.L1Loss().to(self.device)
         self.criterion_tex  = nn.L1Loss().to(self.device)
+        
+        print('\n====Weights of loss:====')
+        for key, val in vars(self).items():
+            if 'e_' in key and 'loss' in key:
+                print('%-25s:'%(key), val) 
 
     def forward(
             self,
@@ -324,9 +331,9 @@ class VIBELoss(nn.Module):
         # <======== Generator Loss
         loss_kp_2d =  self.keypoint_loss(pred_j2d, real_2d, openpose_weight=1., gt_weight=1.) * self.e_loss_weight
         loss_kp_3d = self.keypoint_3d_loss(pred_j3d, real_3d) * self.e_3d_loss_weight
-        
         loss_bvt_3d = self.keypoint_3d_loss(pred_bvt, real_bv) * self.e_3d_loss_weight
-        loss_dsp_3d = self.displacement_loss(pred_dsp, real_dp) * self.e_3d_loss_weight    # as Err_disp << joins and vt 
+        
+        loss_dsp_3d = self.displacement_loss(pred_dsp, real_dp) * self.e_disp_loss_weight
         loss_tex_2d = self.tex_loss(pred_tex, real_uv) * self.e_tex_loss_weight
         
         loss_dict = {
