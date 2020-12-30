@@ -23,10 +23,10 @@ import numpy as np
 import open3d as o3d
 
 from dataset import MGNDataset
-from utils import Mesh, BaseTrain, CheckpointDataLoader, renderer
+from utils import Mesh, BaseTrain, CheckpointDataLoader
 from utils.mesh_util import create_fullO3DMesh
 from utils.vis_util import read_Obj
-from models import SMPL, frameVIBE
+from models import SMPL, frameVIBE, simple_renderer
 from models import camera as perspCamera
 from models.loss import VIBELoss
 from models.structures_options import structure_options
@@ -126,12 +126,13 @@ class trainer(BaseTrain):
             weight_decay=self.options.wd)
         
         self.criterion = VIBELoss(
-            e_loss_weight=1,           # for kp 2d
-            e_3d_loss_weight=10,       # for kp 3d, bvt, dsp
+            e_loss_weight=50,           # for kp 2d, help to estimate camera, global orientation
+            e_3d_loss_weight=1,       # for kp 3d, bvt
             e_pose_loss_weight=10,     # for body pose parameters
-            e_shape_loss_weight=0.1,   # for body shape parameters
+            e_shape_loss_weight=1,   # for body shape parameters
+            e_disp_loss_weight=1,   # for displacements 
             e_tex_loss_weight=1,       # for uv image 
-            d_motion_loss_weight=1
+            d_motion_loss_weight=0
             )
         
         # Pack models and optimizers in a dict - necessary for checkpointing
@@ -286,6 +287,11 @@ class trainer(BaseTrain):
         out_args = loss_dict
         out_args['loss'] = gen_loss
         out_args['prediction'] = pred 
+        
+        # save one training sample for vis
+        if (self.step_count+1) % self.options.summary_steps == 0:
+            with torch.no_grad():
+                self.save_sample(GT, pred[0], saveTo = 'train')
 
         return out_args
 
@@ -359,9 +365,23 @@ class trainer(BaseTrain):
                        }
         self.test_summaries(lossSummary)
         
-    def save_sample(self, data, prediction, ind = 0):
+        if test_loss < self.last_test_loss:
+            self.last_test_loss = test_loss
+            self.saver.save_checkpoint(self.models_dict, 
+                                       self.optimizers_dict, 
+                                       0, 
+                                       step+1, 
+                                       self.options.batch_size, 
+                                       self.test_data_loader.sampler.dataset_perm, 
+                                       self.step_count) 
+            tqdm.write('Better test checkpoint saved')
+        
+    def save_sample(self, data, prediction, ind = 0, saveTo = 'test'):
         """Saving a sample for visualization and comparison"""
-        folder = pjn(self.options.summary_dir, 'test/')
+        
+        assert saveTo in ('test', 'train'), 'save to train or test folder'
+        
+        folder = pjn(self.options.summary_dir, '%s/'%(saveTo))
         _input = pjn(folder, 'input_image.png')
         # batchs = self.options.batch_size
         
@@ -370,7 +390,7 @@ class trainer(BaseTrain):
             plt.imsave(_input, data['img'][ind].cpu().permute(1,2,0).clamp(0,1).numpy())
             
         # overlap the prediction to the real image
-        save_renderer = renderer(batch_size = 1)
+        save_renderer = simple_renderer(batch_size = 1)
         predTrans = torch.stack(
             [prediction['theta'][ind, 1],
              prediction['theta'][ind, 2],
@@ -394,33 +414,36 @@ class trainer(BaseTrain):
         plt.imsave(save_path, (overlayimg.clamp(0, 1)*255).cpu().numpy().astype('uint8'))
         save_path = pjn(folder,'tex_%s_iters%d.png'%(data['imgname'][ind].split('/')[-1][:-4], self.step_count))
         plt.imsave(save_path, (pred_img[0,:,:,:3].clamp(0, 1)*255).cpu().numpy().astype('uint8'))
+        save_path = pjn(folder,'unwarptex_%s_iters%d.png'%(data['imgname'][ind].split('/')[-1][:-4], self.step_count))
+        plt.imsave(save_path, (prediction['unwarp_tex'][ind].clamp(0, 1)*255).cpu().numpy().astype('uint8'))
+        
         
         # save body pose if available
-        # bodyList = {}
+        bodyList = {}
         
-        # # create GT undressed body vetirces. Do not use orignal beta and rot
-        # # since the global orientation is incorrect
-        # bodyList['bodyGT'] = data['target_bvt'].cpu()
+        # create GT undressed body vetirces. Do not use orignal beta and rot
+        # since the global orientation is incorrect
+        bodyList['bodyGT'] = data['target_bvt'].cpu()
         
-        # # create predicted undressed body vetirces
-        # bodyList['bodyPred'] = self.smpl(
-        #     prediction['theta'][ind][3:75][None],
-        #     prediction['theta'][ind][75:][None]).cpu()
+        # create predicted undressed body vetirces
+        bodyList['bodyPred'] = self.smpl(
+            prediction['theta'][ind][3:75][None],
+            prediction['theta'][ind][75:][None]).cpu()
         
-        # # consider cloth
-        # target_dp = (data['target_dp'][ind]*self.dispPara[1]*10+self.dispPara[0]).cpu()[None,:] 
-        # predict_dp = (prediction['verts_disp'][ind]*self.dispPara[1]*10+self.dispPara[0]).cpu()[None,:] 
+        # consider cloth
+        target_dp = (data['target_dp'][ind]*self.dispPara[1]*10+self.dispPara[0]).cpu()[None,:] 
+        predict_dp = (prediction['verts_disp'][ind]*self.dispPara[1]*10+self.dispPara[0]).cpu()[None,:] 
         
-        # bodyList['bodyGT_GTCloth'] = bodyList['bodyGT'] + target_dp  
-        # bodyList['bodyGT_PredCloth'] = bodyList['bodyGT'] + predict_dp         
-        # bodyList['bodyPred_PredCloth']= bodyList['bodyPred'] + predict_dp
+        bodyList['bodyGT_GTCloth'] = bodyList['bodyGT'] + target_dp  
+        bodyList['bodyGT_PredCloth'] = bodyList['bodyGT'] + predict_dp         
+        bodyList['bodyPred_PredCloth']= bodyList['bodyPred'] + predict_dp
                             
-        # # Create meshes and save them
-        # for key, val in bodyList.items():
-        #     Meshbody = create_fullO3DMesh(val[0], self.faces.cpu()[0])    
-        #     savepath = pjn(folder,'%s_iters%d__%s.obj'%\
-        #             (data['imgname'][ind].split('/')[-1][:-4], self.step_count, key))
-        #     o3d.io.write_triangle_mesh(savepath, Meshbody)
+        # Create meshes and save them
+        for key, val in bodyList.items():
+            Meshbody = create_fullO3DMesh(val[0], self.faces.cpu()[0])    
+            savepath = pjn(folder,'%s_iters%d__%s.obj'%\
+                    (data['imgname'][ind].split('/')[-1][:-4], self.step_count, key))
+            o3d.io.write_triangle_mesh(savepath, Meshbody)
 
 
 if __name__ == '__main__':
@@ -430,7 +453,7 @@ if __name__ == '__main__':
     cfgs.parse_args()
     
     # confirm general settings
-    for arg in sorted(vars(cfgs.args)):
+    for arg in vars(cfgs.args):
         print('%-25s:'%(arg), getattr(cfgs.args, arg)) 
     msg = 'Do you confirm that the settings are correct?'
     assert input("%s (Y/N) " % msg).lower() == 'y', 'Settings are not comfirmed.'
