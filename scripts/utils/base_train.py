@@ -41,6 +41,9 @@ class BaseTrain(object):
         else:
             self.epoch_count = self.checkpoint['epoch']
             self.step_count = self.checkpoint['total_step_count']
+            
+        # store the previous loss for comparison
+        self.last_test_loss = 10
         
     def load_pretrained(self, checkpoint_file=None):
         """Load a pretrained checkpoint.
