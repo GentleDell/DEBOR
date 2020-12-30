@@ -48,9 +48,9 @@ class SimpleShader(nn.Module):
         return images  # (N, H, W, 3) RGBA image
 
 
-class renderer(nn.Module):
+class simple_renderer(nn.Module):
     def __init__(self, convertToPytorch3D: bool = True, batch_size: int = 1):
-        super(renderer, self).__init__()
+        super(simple_renderer, self).__init__()
         
         assert batch_size == 1,\
             'with some issues in pytorch3D, render 1 mesh per forward'
