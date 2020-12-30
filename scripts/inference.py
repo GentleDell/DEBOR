@@ -24,15 +24,16 @@ import open3d as o3d
 import matplotlib.pyplot as plt
 from torchvision.transforms import Normalize
 
-from utils.imutils import crop, background_replacing
 from utils import Mesh, CheckpointSaver
+from utils.imutils import crop, background_replacing
 from utils.mesh_util import generateSMPLmesh, create_fullO3DMesh
-from models import GraphCNN, res50_plus_Dec, UNet, frameVIBE, SMPL
+from models import GraphCNN, res50_plus_Dec, UNet, frameVIBE, SMPL, simple_renderer
 from models.geometric_layers import rotationMatrix_to_axisAngle, axisAngle_to_Rot6d
 from utils.vis_util import read_Obj
 
 
-def visbodyPrediction(prediction, options, device = 'cuda', ind = 0):
+def visbodyPrediction(img_in, prediction, options, 
+                      device = 'cuda', isAug = False, ind = 0):
     
     prediction = prediction[0]
     
@@ -46,9 +47,17 @@ def visbodyPrediction(prediction, options, device = 'cuda', ind = 0):
                             ], dim = 0 )
     faces = faces.type(torch.LongTensor).to(device)
     
+    # read SMPL .bj file to get uv coordinates
+    _, smpl_tri_ind, uv_coord, tri_uv_ind = read_Obj(options.smpl_objfile_path)
+    uv_coord[:, 1] = 1 - uv_coord[:, 1]
+    expUV = uv_coord[tri_uv_ind.flatten()]
+    unique, index = np.unique(smpl_tri_ind.flatten(), return_index = True)
+    smpl_verts_uvs = torch.as_tensor(expUV[index,:]).float().to(device)
+    smpl_tri_ind   = torch.as_tensor(smpl_tri_ind).to(device)
+    
+    # vis body model
     smpl = SMPL(options.smpl_model_path, device)
     body = smpl(prediction['theta'][ind][3:75][None], prediction['theta'][ind][75:][None]).cpu()
-    
     if "verts_disp" in prediction.keys():
         disp = (prediction['verts_disp'][ind]*dispPara[1]*10+dispPara[0]).cpu()
         body = body + disp
@@ -56,7 +65,38 @@ def visbodyPrediction(prediction, options, device = 'cuda', ind = 0):
     MeshPred = create_fullO3DMesh(body[ind], faces.cpu()[0])    
     o3d.visualization.draw_geometries([MeshPred])
     
-    
+    # vis texture
+    vis_renderer = simple_renderer(batch_size = 1)
+    predTrans = torch.stack(
+        [prediction['theta'][ind, 1],
+         prediction['theta'][ind, 2],
+         2 * 1000. / (224. * prediction['theta'][ind, 0] + 1e-9)], dim=-1)
+    tex = (prediction['tex_image'][ind][None], 
+           prediction['tex_image'][ind].flip(dims=(0,))[None])[isAug]
+    pred_img = vis_renderer(
+        verts = prediction['verts'][ind][None],
+        faces = faces[ind][None],
+        verts_uvs = smpl_verts_uvs[None],
+        faces_uvs = smpl_tri_ind[None],
+        tex_image = tex,
+        R = torch.eye(3)[None].to('cuda'),
+        T = predTrans,
+        f = torch.ones([1,1]).to('cuda')*1000,
+        C = torch.ones([1,2]).to('cuda')*112,
+        imgres = 224).cpu()
+    overlayimg = 0.9*pred_img[0,:,:,:3] + 0.1*img_in.permute(1,2,0)
+
+    if 'tex_image' in prediction.keys():
+        plt.figure()
+        plt.imshow(prediction['tex_image'][ind].cpu())
+        plt.figure()
+        plt.imshow(prediction['unwarp_tex'][ind].cpu())
+        plt.figure()
+        plt.imshow(pred_img[ind].cpu())
+        plt.figure()
+        plt.imshow(overlayimg.cpu())
+        
+        
 def visdispPrediction(path_object: str, path_SMPLmodel: str, displacement: array,
                   chooseUpsample: bool = True):
     # upsampled mesh
@@ -198,6 +238,14 @@ def inference_structure(pathCkp: str, pathImg: str = None,
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     mesh = Mesh(options, options.num_downsampling)
     
+    # read SMPL .bj file to get uv coordinates
+    _, smpl_tri_ind, uv_coord, tri_uv_ind = read_Obj(options.smpl_objfile_path)
+    uv_coord[:, 1] = 1 - uv_coord[:, 1]
+    expUV = uv_coord[tri_uv_ind.flatten()]
+    unique, index = np.unique(smpl_tri_ind.flatten(), return_index = True)
+    smpl_verts_uvs = torch.as_tensor(expUV[index,:]).float().to(device)
+    smpl_tri_ind   = torch.as_tensor(smpl_tri_ind).to(device)
+    
     # load average pose and shape and convert to camera coodinate;
     # avg pose is decided by the image id we use for training (0-11) 
     avgPose_objCoord = np.load(options.MGN_avgPose_path)
@@ -229,7 +277,9 @@ def inference_structure(pathCkp: str, pathImg: str = None,
             avgBeta,
             avgCam,
             options.num_channels,
-            options.num_layers
+            options.num_layers,
+            smpl_verts_uvs,
+            smpl_tri_ind
             ).to(device)
     
     optimizer = torch.optim.Adam(params=list(model.parameters()))
@@ -287,15 +337,15 @@ def inference_structure(pathCkp: str, pathImg: str = None,
 if __name__ == '__main__':
     
     path_to_SMPL  = '../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl' 
-    path_to_chkpt = '../logs/local/structure'
-    path_to_object= '../datasets/MGN_brighter_augmented/125611487366942_pose52/'
+    path_to_chkpt = '../logs/local/structure_ver1_all'
+    path_to_object= '../datasets/MGN_brighter_augmented/125611521914479_pose82/'
     path_to_image = pjn(path_to_object, 'rendering/camera0_light0_smpl_registered.png')
     
     inf_body = True
     
     if inf_body:
         prediction, img_in, options = inference_structure(path_to_chkpt, path_to_image)
-        visbodyPrediction(prediction, options)
+        visbodyPrediction(img_in, prediction, options, isAug='_pose' in path_to_object)
     else:
         prediction, img_in = inference(path_to_chkpt, path_to_image)
         prediction = prediction[0].cpu()
