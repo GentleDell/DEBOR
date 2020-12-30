@@ -13,7 +13,7 @@ from .geometric_layers import rot6d_to_axisAngle, rot6d_to_rotmat
 from .camera import cameraPerspective as Cam
 from .graph_cnn import GraphCNN
 from .unet import UNet
-from utils import renderer
+from .renderer import simple_renderer
 
 class frameVIBE(nn.Module):
     def __init__(
@@ -44,7 +44,7 @@ class frameVIBE(nn.Module):
 
         # <=========== rendering parameters
         # differentiable renderer
-        self.renderer = renderer(batch_size = 1)
+        self.renderer = simple_renderer(batch_size = 1)
         
         # an image of uv coordinate as texture to unwarp image to uv map
         u = torch.arange(start=0, end=1, step=1/224)
@@ -75,13 +75,15 @@ class frameVIBE(nn.Module):
         feature = feature.reshape(-1, feature.size(-1))
 
         smpl_output = self.regressor(feature)
+        
+        # we might need to have two encoders
         disp_output = self.GCN_regressor(feature)
 
         with torch.no_grad():
             uvimages  = self.render_uvpose(smpl_output[0]['verts'], 
                                            smpl_output[0]['theta'][:,:3])
-            unwrapTex = self.unwarp(img, uvimages)
-        tex_output  = self.tex_regressor(unwrapTex.permute(0,3,1,2))    # N*3*224*224
+            unwarpTex = self.unwarp(img, uvimages)
+        tex_output  = self.tex_regressor(unwarpTex.permute(0,3,1,2))    # N*3*224*224
             
         for ind, s in enumerate(smpl_output):
             s['theta'] = s['theta'].reshape(batch_size, -1)
@@ -90,6 +92,7 @@ class frameVIBE(nn.Module):
             s['kp_3d'] = s['kp_3d'].reshape(batch_size, -1, 3)
             s['rotmat'] = s['rotmat'].reshape(batch_size, -1, 3, 3)        
             s['verts_disp'] = disp_output.reshape(batch_size, -1, 3)
+            s['unwarp_tex'] = unwarpTex.reshape(batch_size, 224, 224, 3)
             s['tex_image'] = tex_output.reshape(batch_size, 224, 224, 3)
         return smpl_output
     
@@ -131,7 +134,15 @@ class frameVIBE(nn.Module):
             rgb = rgbImage[cnt].permute(1,2,0)
             
             mask = uv.sum(dim = 2) > 0
-            rgb  = rgb[mask,:]
+            try:
+                rgb  = rgb[mask,:]
+            except:
+                print('error triggered:', mask.shape, rgb.shape)
+                torch.save(rgb, './error_rgb.pt')
+                torch.save(uv, './error_uv.pt')
+                print(mask.shape, rgb.shape)
+                raise ValueError('error in unwarp detected.')
+                
             uvCd = (uv[mask][:,:2]*224).round().long()
             
             # better to use inverse mapping
