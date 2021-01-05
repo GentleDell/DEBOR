@@ -30,8 +30,10 @@ class frameVIBE(nn.Module):
     ):
         super(frameVIBE, self).__init__()
         
-        # image encoder to extract latent feature vector
-        self.encoder = ImageEncoder()
+        # image encoders to extract latent feature vector for 
+        # pose and displacements estimation
+        self.encoder_pose = ImageEncoder()
+        self.encoder_disp = ImageEncoder()
 
         # regressor can predict cam, pose and shape params in an iterative way
         self.regressor = Regressor_pose(model_file, init_pose, init_shape, init_cam)
@@ -71,13 +73,13 @@ class frameVIBE(nn.Module):
         # input size NTF
         batch_size = img.shape[0]
 
-        feature = self.encoder(img)
-        feature = feature.reshape(-1, feature.size(-1))
-
-        smpl_output = self.regressor(feature)
+        feature_pose = self.encoder_pose(img)
+        feature_pose = feature_pose.reshape(-1, feature_pose.size(-1))
+        smpl_output  = self.regressor(feature_pose)
         
-        # we might need to have two encoders
-        disp_output = self.GCN_regressor(feature)
+        feature_disp = self.encoder_disp(img)
+        feature_disp = feature_disp.reshape(-1, feature_disp.size(-1))
+        disp_output = self.GCN_regressor(feature_disp)
 
         with torch.no_grad():
             uvimages  = self.render_uvpose(smpl_output[0]['verts'], 
