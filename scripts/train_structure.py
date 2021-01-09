@@ -29,7 +29,6 @@ from utils.vis_util import read_Obj
 from models import SMPL, frameVIBE, simple_renderer
 from models import camera as perspCamera
 from models.loss import VIBELoss
-from models.structures_options import structure_options
 from models.geometric_layers import rot6d_to_axisAngle, rot6d_to_rotmat
 from models.geometric_layers import axisAngle_to_Rot6d, rotationMatrix_to_axisAngle
 from train_structure_cfg import TrainOptions
@@ -41,9 +40,6 @@ o3d.utility.set_verbosity_level(o3d.utility.VerbosityLevel.Error)
 class trainer(BaseTrain):
     
     def init(self):
-        # load structure configuration 
-        self.structuresCfg = namedtuple(
-            'options', structure_options.keys())(**structure_options)
         
         # Create training and testing dataset
         self.train_ds = MGNDataset(self.options, split = 'train')
@@ -416,7 +412,8 @@ class trainer(BaseTrain):
         plt.imsave(save_path, (pred_img[0,:,:,:3].clamp(0, 1)*255).cpu().numpy().astype('uint8'))
         save_path = pjn(folder,'unwarptex_%s_iters%d.png'%(data['imgname'][ind].split('/')[-1][:-4], self.step_count))
         plt.imsave(save_path, (prediction['unwarp_tex'][ind].clamp(0, 1)*255).cpu().numpy().astype('uint8'))
-        
+        save_path = pjn(folder,'predtex_%s_iters%d.png'%(data['imgname'][ind].split('/')[-1][:-4], self.step_count))
+        plt.imsave(save_path, (prediction['tex_image'][ind].clamp(0, 1)*255).cpu().numpy().astype('uint8'))
         
         # save body pose if available
         bodyList = {}
@@ -457,25 +454,6 @@ if __name__ == '__main__':
         print('%-25s:'%(arg), getattr(cfgs.args, arg)) 
     msg = 'Do you confirm that the settings are correct?'
     assert input("%s (Y/N) " % msg).lower() == 'y', 'Settings are not comfirmed.'
-    
-    # # confirm structure settings
-    # import json
-    # with open( pjn(cfgs.args.log_dir, 'structures.json'), 'w') as file:
-    #   json.dump(structure_options, file, indent=4)
-    # for key, val in structure_options.items():
-    #     if isinstance(val, dict):
-    #         print('%-25s:'%key)
-    #         for ikey, ival in val.items():
-    #             if isinstance(ival, dict):
-    #                 print('\t%-21s:'%ikey)
-    #                 for jkey, jval in ival.items():
-    #                     print('\t\t%-17s:'%(jkey), jval) 
-    #             else:
-    #                 print('\t%-21s:'%(ikey), ival) 
-    #     else:   
-    #         print('%-25s:'%(key), val) 
-    # msg = 'Do you confirm that the structures are correct?'
-    # assert input("%s (Y/N) " % msg).lower() == 'y', 'Settings are not comfirmed.'
 
     mgn_trainer = trainer(cfgs.args)
     mgn_trainer.train()

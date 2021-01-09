@@ -336,9 +336,11 @@ def inference_structure(pathCkp: str, pathImg: str = None,
 
 if __name__ == '__main__':
     
+    print("Be careful with the resnet50 in GCN, some remove it some not.")
+    
     path_to_SMPL  = '../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl' 
-    path_to_chkpt = '../logs/local/structure_ver1_all'
-    path_to_object= '../datasets/MGN_brighter_augmented/125611521914479_pose82/'
+    path_to_chkpt = '../logs/local/structure_ver1_full_doubleEnc'
+    path_to_object= '../datasets/MGN_brighter_augmented/125611516241372/'
     path_to_image = pjn(path_to_object, 'rendering/camera0_light0_smpl_registered.png')
     
     inf_body = True
