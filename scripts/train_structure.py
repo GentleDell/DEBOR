@@ -321,7 +321,7 @@ class trainer(BaseTrain):
 
             with torch.no_grad():    # disable grad
                 # forward pass
-                pred = self.model(GT['img'])
+                pred = self.model(GT['img'], GT['img_orig'])
                 
                 # loss
                 gen_loss, loss_dict = self.criterion(

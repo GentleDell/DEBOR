@@ -230,6 +230,8 @@ def evaluation_structure(pathCkp: str):
 
 if __name__ == '__main__':
     
+    print('be aware of the input to the model, some need img_orig.')
+    
     path_to_chkpt = '../logs/local/structure_ver1_all'
     
     evaErrs = evaluation_structure(path_to_chkpt)
