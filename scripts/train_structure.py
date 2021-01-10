@@ -242,6 +242,7 @@ class trainer(BaseTrain):
         # )
         
         GT = {'img' : input_batch['img'].float(),
+              'img_orig': input_batch['img_orig'].float(),
               'imgname' : input_batch['imgname'],
               'isAug': input_batch['isAug'],
               
@@ -271,7 +272,7 @@ class trainer(BaseTrain):
         GT = self.convert_GT(input_batch)
         
         # forward pass
-        pred = self.model(GT['img'])
+        pred = self.model(GT['img'], GT['img_orig'])
         
         # loss
         gen_loss, loss_dict = self.criterion(

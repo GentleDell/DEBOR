@@ -69,23 +69,29 @@ class frameVIBE(nn.Module):
         self.register_buffer('camf', f)
         self.register_buffer('camC', C)
     
-    def forward(self, img):
-        # input size NTF
+    def forward(self, img, orig_img):
+       
         batch_size = img.shape[0]
-
+        
+        # <=== pose regression
         feature_pose = self.encoder_pose(img)
         feature_pose = feature_pose.reshape(-1, feature_pose.size(-1))
         smpl_output  = self.regressor(feature_pose)
         
-        feature_disp = self.encoder_disp(img)
-        feature_disp = feature_disp.reshape(-1, feature_disp.size(-1))
-        disp_output = self.GCN_regressor(feature_disp)
-
+        # <=== texture regression
         with torch.no_grad():
             uvimages  = self.render_uvpose(smpl_output[0]['verts'], 
                                            smpl_output[0]['theta'][:,:3])
-            unwarpTex = self.unwarp(img, uvimages)
+            unwarpTex = self.unwarp(orig_img, uvimages)
         tex_output  = self.tex_regressor(unwarpTex.permute(0,3,1,2))    # N*3*224*224
+        
+        # <=== cloth regression
+        # unpose image
+        
+        # regress clothes
+        feature_disp = self.encoder_disp(img)
+        feature_disp = feature_disp.reshape(-1, feature_disp.size(-1))
+        disp_output = self.GCN_regressor(feature_disp)
             
         for ind, s in enumerate(smpl_output):
             s['theta'] = s['theta'].reshape(batch_size, -1)
