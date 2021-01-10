@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 
 from .graph_layers import GraphResBlock, GraphLinear
-from .resnet import resnet50
+# from .resnet import resnet50
 
 class GraphCNN(nn.Module):
     
@@ -16,7 +16,7 @@ class GraphCNN(nn.Module):
         super(GraphCNN, self).__init__()
         self.A = A
         self.ref_vertices = ref_vertices
-        self.resnet = resnet50(pretrained=True)
+        # self.resnet = resnet50(pretrained=True)
         self.infeature = infeature
         
         layers = [GraphLinear(3 + infeature, 2 * num_channels)]
