@@ -58,11 +58,14 @@ def visbodyPrediction(img_in, prediction, options,
     # vis body model
     smpl = SMPL(options.smpl_model_path, device)
     body = smpl(prediction['theta'][ind][3:75][None], prediction['theta'][ind][75:][None]).cpu()
-    if "verts_disp" in prediction.keys():
-        disp = (prediction['verts_disp'][ind]*dispPara[1]*10+dispPara[0]).cpu()
-        body = body + disp
+    
+    disp = (prediction['verts_disp'][ind]*dispPara[1]*10+dispPara[0]).cpu()
+    dressedbody = body + disp
         
     MeshPred = create_fullO3DMesh(body[ind], faces.cpu()[0])    
+    o3d.visualization.draw_geometries([MeshPred])
+    
+    MeshPred = create_fullO3DMesh(dressedbody[ind], faces.cpu()[0])    
     o3d.visualization.draw_geometries([MeshPred])
     
     # vis texture
@@ -74,7 +77,7 @@ def visbodyPrediction(img_in, prediction, options,
     tex = (prediction['tex_image'][ind][None], 
            prediction['tex_image'][ind].flip(dims=(0,))[None])[isAug]
     pred_img = vis_renderer(
-        verts = prediction['verts'][ind][None],
+        verts = prediction['verts'][ind][None]+disp.to('cuda'),
         faces = faces[ind][None],
         verts_uvs = smpl_verts_uvs[None],
         faces_uvs = smpl_tri_ind[None],
@@ -95,6 +98,8 @@ def visbodyPrediction(img_in, prediction, options,
         plt.imshow(pred_img[ind].cpu())
         plt.figure()
         plt.imshow(overlayimg.cpu())
+        plt.figure()
+        plt.imshow(img_in.cpu().permute(1,2,0))
         
         
 def visdispPrediction(path_object: str, path_SMPLmodel: str, displacement: array,
@@ -330,7 +335,8 @@ def inference_structure(pathCkp: str, pathImg: str = None,
     # Inference
     with torch.no_grad():    # disable grad
         model.eval()    
-        prediction = model(img_in[None].repeat_interleave(options.batch_size, dim = 0).to(device))
+        prediction = model(img_in[None].repeat_interleave(options.batch_size, dim = 0).to(device),
+                           img_in[None].repeat_interleave(options.batch_size, dim = 0).to(device))
 
     return prediction, img_in, options
 
@@ -340,14 +346,14 @@ if __name__ == '__main__':
     
     path_to_SMPL  = '../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl' 
     path_to_chkpt = '../logs/local/structure_ver1_full_doubleEnc'
-    path_to_object= '../datasets/MGN_brighter_augmented/125611516241372/'
+    path_to_object= '../datasets/MGN_brighter_augmented/125611517596592/'
     path_to_image = pjn(path_to_object, 'rendering/camera0_light0_smpl_registered.png')
     
     inf_body = True
     
     if inf_body:
         prediction, img_in, options = inference_structure(path_to_chkpt, path_to_image)
-        visbodyPrediction(img_in, prediction, options, isAug='_pose' in path_to_object)
+        visbodyPrediction(img_in, prediction, options, isAug=True)
     else:
         prediction, img_in = inference(path_to_chkpt, path_to_image)
         prediction = prediction[0].cpu()

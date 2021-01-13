@@ -184,7 +184,7 @@ def evaluation_structure(pathCkp: str):
     
     with torch.no_grad():
         textErr, dispErr, poseErr, shapeErr = 0, 0, 0, 0
-        timeAll, timeBody, timeDisp, timeTxt = 0, 0, 0, 0
+        timeAll = 0
         for step, batch in enumerate(tqdm(eva_data_loader, desc='Epoch0',
                                                   total=len(eva_ds) // options.batch_size,
                                                   initial=eva_data_loader.checkpoint_batch_idx),
