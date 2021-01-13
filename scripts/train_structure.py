@@ -21,6 +21,7 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
+from pytorch3d.structures import Meshes
 
 from dataset import MGNDataset
 from utils import Mesh, BaseTrain, CheckpointDataLoader
@@ -194,16 +195,12 @@ class trainer(BaseTrain):
             )
         vertices = (vertices - input_batch['cameraGT']['t'][:,None,:]).float()
         
-        # compute the displacements (mag * normal)
-        dispGT = []
-        for cnt in range(vertices.shape[0]):
-            o3dBody = create_fullO3DMesh(vertices[cnt].cpu(), self.faces[cnt].cpu()) 
-            normals = torch.as_tensor(o3dBody.compute_vertex_normals().vertex_normals).float().to(self.device)
-            dispMag = input_batch['meshGT']['displacement'][cnt].norm(dim=1)
-            dispGT.append( dispMag[:,None]*normals )
-            
-        # normalize the disp; divide by 10 is to limit the scale (outliers);
-        dispGT = (torch.stack(dispGT, dim = 0)-self.dispPara[0])/self.dispPara[1]/10
+        # compute the displacements
+        bodyMesh = Meshes(verts = vertices, faces = self.faces)
+        bodyNorm = bodyMesh.verts_normals_packed().reshape(self.options.batch_size, -1, 3)
+        dispMag = input_batch['meshGT']['displacement'].norm(dim=2).unsqueeze(dim=2)
+        dispGT = dispMag*bodyNorm
+        dispGT = (dispGT-self.dispPara[0])/self.dispPara[1]/10
         
         # prove the correctness of coord sys 
         # points = (dispGT*self.dispPara[1]*10+self.dispPara[0]) + vertices
@@ -224,7 +221,19 @@ class trainer(BaseTrain):
         # img_points[visind][img_points[visind].round() < 0] = 0 
         # img[img_points[visind][:,1].round().long(), img_points[visind][:,0].round().long()] = 1
         # plt.imshow(img)
-        
+                
+        # prove the correctness of displacements
+        # import open3d as o3d
+        # points = (dispGT3d*dispPara[1]*10+dispPara[0]) + vertices
+        # ind = 0
+        # diff = (dispGT[ind] - dispGT3d[ind]).cpu()
+        # o3dMesh = o3d.geometry.TriangleMesh()
+        # o3dMesh.vertices = o3d.utility.Vector3dVector(points[ind].cpu())
+        # o3dMesh.triangles= o3d.utility.Vector3iVector(faces[ind].cpu())
+        # o3dMesh.vertex_colors = o3d.utility.Vector3dVector((diff/0.01).clamp(max=1))
+        # o3dMesh.compute_vertex_normals()     
+        # o3d.visualization.draw_geometries([o3dMesh])
+    
         # self.renderer = renderer(batch_size = 1)
         # if input_batch['isAug'][0]:
         #     tex = input_batch['UVmapGT'].float()[0].flip(dims=(0,))
@@ -248,7 +257,7 @@ class trainer(BaseTrain):
               
               'text': input_batch['meshGT']['texture'].float(),    # verts tex
               'camera': input_batch['cameraGT'],                   # wcd 
-              'indexMap': input_batch['indexMapGT'],
+              # 'indexMap': input_batch['indexMapGT'],
               'theta': smplGT.float(),        
               
               # joints_2d is col, row == x, y; joints_3d is x,y,z
