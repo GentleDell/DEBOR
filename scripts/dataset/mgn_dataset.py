@@ -419,7 +419,7 @@ class BaseDataset(Dataset):
         
         GTcamera = self.camera_trans(
             img, center, sc*scale, rot,flip,self.camera[index],self.options)
-        item['indexMapGT'] = self.getIndicesMap(index, GTcamera)
+        # item['indexMapGT'] = self.getIndicesMap(index, GTcamera)    # not used now
         
         # In camera, we predict f and 6d rotation only, because:
         #     1. the Cx Cy are assumed to be the center of the image
