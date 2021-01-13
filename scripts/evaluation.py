@@ -7,6 +7,7 @@ Created on Sun Jan 10 10:07:35 2021
 """
 
 from os.path import abspath, join as pjn
+import time
 import sys
 if abspath('./') not in sys.path:
     sys.path.append(abspath('./'))
@@ -19,8 +20,8 @@ import torch
 from tqdm import tqdm
 import numpy as np
 
+from pytorch3d.structures import Meshes
 from utils.vis_util import read_Obj
-from utils.mesh_util import create_fullO3DMesh
 from utils import Mesh, CheckpointSaver, CheckpointDataLoader
 from dataset import MGNDataset
 from models import camera as perspCamera, SMPL, frameVIBE
@@ -76,23 +77,19 @@ def convert_GT(options, input_batch, smpl, faces, perspCam, dispPara, device):
         )
     vertices = (vertices - input_batch['cameraGT']['t'][:,None,:]).float()
     
-    # compute the displacements (mag * normal)
-    dispGT = []
-    for cnt in range(vertices.shape[0]):
-        o3dBody = create_fullO3DMesh(vertices[cnt].cpu(), faces[cnt].cpu()) 
-        normals = torch.as_tensor(o3dBody.compute_vertex_normals().vertex_normals).float().to(device)
-        dispMag = input_batch['meshGT']['displacement'][cnt].norm(dim=1)
-        dispGT.append( dispMag[:,None]*normals )
-        
-    # normalize the disp; divide by 10 is to limit the scale (outliers);
-    dispGT = (torch.stack(dispGT, dim = 0)-dispPara[0])/dispPara[1]/10
-        
+    bodyMesh = Meshes(verts = vertices, faces = faces)
+    bodyNorm = bodyMesh.verts_normals_packed().reshape(options.batch_size, -1, 3)
+    dispMag = input_batch['meshGT']['displacement'].norm(dim=2).unsqueeze(dim=2)
+    dispGT = dispMag*bodyNorm
+    dispGT = (dispGT-dispPara[0])/dispPara[1]/10
+    
     GT = {'img' : input_batch['img'].float(),
+          'img_orig': input_batch['img_orig'].float(),
           'imgname' : input_batch['imgname'],
           'isAug': input_batch['isAug'],
           'text': input_batch['meshGT']['texture'].float(),    # verts tex
           'camera': input_batch['cameraGT'],                   # wcd 
-          'indexMap': input_batch['indexMapGT'],
+          # 'indexMap': input_batch['indexMapGT'],
           'theta': smplGT.float(),        
           'target_2d': joints_2d.float(),
           'target_3d': joints_3d.float(),
@@ -185,12 +182,9 @@ def evaluation_structure(pathCkp: str):
     saver = CheckpointSaver(save_dir=options.checkpoint_dir)
     saver.load_checkpoint(models_dict, optimizers_dict, checkpoint_file=options.checkpoint)
     
-    textureMSE = torch.nn.MSELoss()
-    displaceMSE = torch.nn.MSELoss()
-    poseMSE = torch.nn.MSELoss()
-    shapeMSE = torch.nn.MSELoss()
     with torch.no_grad():
         textErr, dispErr, poseErr, shapeErr = 0, 0, 0, 0
+        timeAll, timeBody, timeDisp, timeTxt = 0, 0, 0, 0
         for step, batch in enumerate(tqdm(eva_data_loader, desc='Epoch0',
                                                   total=len(eva_ds) // options.batch_size,
                                                   initial=eva_data_loader.checkpoint_batch_idx),
@@ -210,32 +204,52 @@ def evaluation_structure(pathCkp: str):
                             batch_toDEV[key][k] = v.to(device)
             
             GT = convert_GT(options, batch_toDEV, smpl, faces, perspCam, dispPara, device)
-            pred = model(GT['img'])
             
-            textErr += textureMSE(pred[0]['tex_image'], GT['target_uv']).sqrt()
-            dispErr += displaceMSE(pred[0]['verts_disp'], GT['target_dp']).sqrt()
-            poseErr += poseMSE(pred[0]['theta'][:,6:75], GT['theta'][:,6:75]).sqrt()
-            shapeErr+= shapeMSE(pred[0]['theta'][:,75:], GT['theta'][:,75:]).sqrt()            
+            t0 = time.time()
+            pred = model(GT['img'], GT['img_orig'])
+            t1 = time.time()
+            timeAll += t1-t0
+
+            textErr += (pred[0]['tex_image'] - \
+                        GT['target_uv']).norm(dim=3).view(-1,50176).mean(dim=1).sum()
+                
+            poseErr += (pred[0]['theta'][:,6:75].reshape([-1, 23, 3]) - \
+                        GT['theta'][:,6:75].reshape([-1, 23, 3]))       \
+                        .norm(dim=2).view(-1,23).mean(dim=1).sum()
+                        
+            shapeErr+= (pred[0]['theta'][:,75:].reshape([-1, 10, 1]) - \
+                        GT['theta'][:,75:].reshape([-1, 10, 1]))       \
+                        .norm(dim=2).view(-1,10).mean(dim=1).sum()
+            
+            # unnormalized the displacements
+            predDisp = pred[0]['verts_disp']*10*dispPara[1]+dispPara[0]
+            tarDisp  = GT['target_dp']*10*dispPara[1]+dispPara[0]
+            mask = tarDisp.sum(dim=2) != 0
+            for i in range(options.batch_size):
+                dispErr += (predDisp[i][mask[i]] - tarDisp[i][mask[i]]).norm(dim=1).mean()
             
     textErr = textErr/len(eva_ds)
     dispErr = dispErr/len(eva_ds)
     poseErr = poseErr/len(eva_ds)
     shapeErr= shapeErr/len(eva_ds)
+    timeAll = timeAll/(step+1)
     
     return {'texture RMSE' : textErr,
             'clothes RMSE' : dispErr,
             'pose RMSE' : poseErr,
-            'shape RMSE': shapeErr}
+            'shape RMSE': shapeErr,
+            'timeAll': torch.tensor(timeAll)}
 
 
 if __name__ == '__main__':
     
-    print('be aware of the input to the model, some need img_orig.')
+    print('be aware of the input to the model, some use img_orig but some use img.')
     
-    path_to_chkpt = '../logs/local/structure_ver1_all'
+    path_to_chkpt = '../logs/server/structure_ver1_full_doubleEnc_origText'
     
     evaErrs = evaluation_structure(path_to_chkpt)
     
+    print('\n')
     for key, val in evaErrs.items():
         print('%-25s:'%(key), val.item())
     
