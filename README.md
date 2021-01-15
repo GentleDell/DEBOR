@@ -33,7 +33,7 @@ This repo has been tested on Ubuntu18.04 with GTX1650/GTX2070.
 
 ### Thirdparty
 
-- [smpl_webuser](http://smpl.is.tue.mpg.de): please download the package and copy the smpl_webuser folder to .../DEBOR/script/thirdparty. Registration might be required.
+- [smpl_webuser](http://smpl.is.tue.mpg.de): Registration might be required. Please download the package and copy the smpl_webuser folder to .../DEBOR/script/thirdparty. Meanwhile, copy the neutral SMPL model to .../DEBOR/body_model/.
 - [Multi Garment dataset](https://datasets.d2.mpi-inf.mpg.de/MultiGarmentNetwork/Multi-Garmentdataset.zip): please download and unzip the file to .../DEBOR/datasets/.
 
 ## Usage
@@ -41,12 +41,34 @@ This repo has been tested on Ubuntu18.04 with GTX1650/GTX2070.
 Scripts for data preparation are in the *../DEBOR/scripts/dataset* folder. The configurations of data preparation is stored in *dataset_preparation_cfg.yaml*. Currently, only the MGN dataset is supported.
 
 If dataset augmentation is not required:
-- set "enable_displacement = True" and "enable_rendering=True" in dataset_preparation_cfg.yaml. 
+- set "enable_displacement=True" and "enable_rendering=True" in dataset_preparation_cfg.yaml. 
 - run MGN_dataPreperation.py
 
 If dataset augmentation is required:
-- run MGN_dataPreperation.py with "enable_displacement=True" on and "enable_rendering=False".
+- run MGN_dataPreperation.py with "enable_displacement=True" and "enable_rendering=False".
 - run MGN_dataPreAugmentation.py to augment the dataset. Currently, only pose augmentation is supported.
 - run MGN_dataPreperation.py with "enable_displacement=False" and "enable_rendering=True" to render RGB images.
 
 ### Training
+Training related scripts are provided in *.../DEBOR/scripts/* folder. Training configurations are set in *train_structure_cfg.py*. If datasets and body_model are correctly prepared:
+
+Train the pipeline with:
+
+```
+python train_structure.py 
+```
+
+### Inference/Evaluation
+If there is a pre-trained model available, *inference.py* and *evaluation.py* are provided for inference and evaluation. Paths to checkpoints, samples, etc, need to be set inside the two scripts. 
+
+Inferencing the model:
+```
+python inference.py
+```
+
+Evaluating the model:
+```
+python evaluation.py
+```
+
+
