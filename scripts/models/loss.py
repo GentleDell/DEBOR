@@ -13,10 +13,7 @@ if __name__ == '__main__':
     
 import torch
 import torch.nn as nn
-import open3d as o3d
-from pytorch3d.structures import Meshes
 
-from third_party.pytorch_msssim import MS_SSIM
 from .geometric_layers import axisAngle_to_rotationMatrix
 
 class VIBELoss(nn.Module):
