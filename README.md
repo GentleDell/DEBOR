@@ -45,18 +45,19 @@ If dataset augmentation is not required:
 - run MGN_dataPreperation.py
 
 If dataset augmentation is required:
-- run MGN_dataPreperation.py with "enable_displacement=True" and "enable_rendering=False".
+- run MGN_dataPreperation.py with "enable_displacement=True" and "enable_rendering=False" in dataset_preparation_cfg.yaml.
 - run MGN_dataPreAugmentation.py to augment the dataset. Currently, only pose augmentation is supported.
-- run MGN_dataPreperation.py with "enable_displacement=False" and "enable_rendering=True" to render RGB images.
+- run MGN_dataPreperation.py with "enable_displacement=False" and "enable_rendering=True" in dataset_preparation_cfg.yaml to render RGB images.
 
 ### Training
-Training related scripts are provided in *.../DEBOR/scripts/* folder. Training configurations are set in *train_structure_cfg.py*. If datasets and body_model are correctly prepared:
+Training related scripts are provided in *.../DEBOR/scripts/* folder. Training configurations are set in *train_structure_cfg.py*. 
 
 Train the pipeline with:
 
 ```
 python train_structure.py 
 ```
+If batch_size=2, a GPU with at least 4GB RAM is required; If batch_size=8, it needs >=8GB GPU RAM; If batch_size=32, it needs >=28GB GPU RAM.
 
 ### Inference/Evaluation
 If there is a pre-trained model available, *inference.py* and *evaluation.py* are provided for inference and evaluation. Paths to checkpoints, samples, etc, need to be set inside the two scripts. 
@@ -70,5 +71,11 @@ Evaluating the model:
 ```
 python evaluation.py
 ```
+A Pre-trained model are provided [here]().
+
+## References
+There are functions, classes and scripts in this project that are borrowed from external repos. Here are some great works we are benefited from: [VIBE](https://github.com/mkocabas/VIBE), [GraphCMR](https://github.com/nkolot/GraphCMR), [RotationContinuity](https://github.com/papagina/RotationContinuity), [
+TexturePose](https://github.com/geopavlakos/TexturePose), [MultiGarmentNetwork](https://github.com/bharat-b7/MultiGarmentNetwork). We would  like  to  thank all scientists and researchers in the community for sharing reading and research materials used in this project. 
+
 
 
