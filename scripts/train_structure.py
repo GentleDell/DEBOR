@@ -89,19 +89,12 @@ class trainer(BaseTrain):
                            [0,  0,-1]]]))
         self.avgPose = \
             axisAngle_to_Rot6d(
-                torch.Tensor(
-                    avgPose_objCoord[None]\
-                    .repeat(self.options.batch_size, axis = 0))
-                    .reshape(-1, 3)).reshape(self.options.batch_size, -1)\
-                .to(self.device)
+                torch.Tensor(avgPose_objCoord[None]).reshape(-1, 3)
+                    ).reshape(1, -1).to(self.device)
         self.avgBeta = \
-            torch.Tensor(np.load(self.options.MGN_avgBeta_path)[None]
-                    .repeat(self.options.batch_size, axis = 0)).to(self.device)
-        # 1.2755 is for our settings
-        self.avgCam  = \
-            torch.Tensor([1.2755, 0, 0])[None]\
-                    .repeat_interleave(self.options.batch_size, dim = 0)\
-                    .to(self.device)    # we know the rendered dataset
+            torch.Tensor(
+                np.load(self.options.MGN_avgBeta_path)[None]).to(self.device)
+        self.avgCam  = torch.Tensor([1.2755, 0, 0])[None].to(self.device)    # 1.2755 is for our settings
         
         self.model = frameVIBE(
             self.options.smpl_model_path, 
@@ -123,7 +116,7 @@ class trainer(BaseTrain):
             weight_decay=self.options.wd)
         
         self.criterion = VIBELoss(
-            e_loss_weight=50,           # for kp 2d, help to estimate camera, global orientation
+            e_loss_weight=50,         # for kp 2d, help to estimate camera, global orientation
             e_3d_loss_weight=1,       # for kp 3d, bvt
             e_pose_loss_weight=10,     # for body pose parameters
             e_shape_loss_weight=1,   # for body shape parameters

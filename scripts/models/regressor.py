@@ -226,11 +226,11 @@ class Regressor_pose(nn.Module):
         batch_size = x.shape[0]
 
         if init_pose is None:
-            init_pose = self.init_pose.expand(batch_size, -1)
+            init_pose = self.init_pose.repeat_interleave(batch_size, dim = 0)
         if init_shape is None:
-            init_shape = self.init_shape.expand(batch_size, -1)
+            init_shape = self.init_shape.repeat_interleave(batch_size, dim = 0)
         if init_cam is None:
-            init_cam = self.init_cam.expand(batch_size, -1)
+            init_cam = self.init_cam.repeat_interleave(batch_size, dim = 0)
 
         pred_pose = init_pose
         pred_shape = init_shape
