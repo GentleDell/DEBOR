@@ -74,7 +74,7 @@ class MGN_subjectPreAugmentation(object):
     
     def diversity(self, dataList: list, keepN: int = 15) -> list:
         
-        data = torch.cat(dataList, dim = 0)
+        data = torch.cat(dataList, dim = 0)[:, 3:]
         
         distance = (data[:,None,:] - data[None,:,:]).norm(dim=2)
         pair, _  = torch.where(distance == distance.max())
@@ -82,8 +82,8 @@ class MGN_subjectPreAugmentation(object):
         independ, indices = [], []
         indices.append(pair[0])
         indices.append(pair[1])
-        independ.append(data[pair[0],:][None,:])
-        independ.append(data[pair[1],:][None,:])
+        independ.append(dataList[pair[0]])
+        independ.append(dataList[pair[1]])
         
         mask = torch.ones(data.shape[0])
         mask[pair[0]] = 0
@@ -94,18 +94,18 @@ class MGN_subjectPreAugmentation(object):
             if cnt == data.shape[0] - 2:
                 break
             
-            distance = (data[:,None,:] - torch.cat(independ, dim = 0)[None,:,:]).norm(dim=2).sum(dim=1)*mask
+            distance = (data[:,None,:] - torch.cat(independ, dim = 0)[None,:,3:]).norm(dim=2).sum(dim=1)*mask
             _, pair = distance.max(dim = 0)
             
             indices.append(pair)
-            independ.append(data[pair,:][None,:])
+            independ.append( dataList[pair] )
             mask[pair] = 0
             
         # betas = torch.zeros([1,10])
         # trans = torch.zeros([1,3])
-        # smpl = SMPL(pathSMPL, 'cpu')
+        # smpl = SMPL(self.path_smpl, 'cpu')
         
-        # pathobje = pjn('/'.join(pathSMPL.split('/')[:-1]), 'text_uv_coor_smpl.obj')
+        # pathobje = pjn('/'.join(self.path_smpl.split('/')[:-1]), 'text_uv_coor_smpl.obj')
         # _, smplMesh, smpl_text_uv_coord, smpl_text_uv_mesh = read_Obj(pathobje)
         
         # for ind in range(keepN):
@@ -214,7 +214,7 @@ if __name__ == "__main__":
         "enable_rendering" on to render RGB images.
     
     '''
-    pathmodel = '/home/zhantao/Documents/masterProject/DEBOR/body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl'
-    path = '../../datasets/SampleMGNDateset'
+    pathmodel = '/home/logix/Documents/DEBOR/body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl'
+    path = '../../datasets/Multi-Garment_dataset'
     mgn  = MGN_subjectPreAugmentation(path, pathmodel)
     mgn.augment_MGN()
