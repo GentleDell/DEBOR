@@ -28,6 +28,7 @@ This repo has been tested on Ubuntu18.04 with GTX1650/GTX2070.
 - sklearn (required by open3d.ml3d)
 - pandas  (required by open3d.ml3d)
 - open3d  (>= 0.11.2)
+- [opendr](https://github.com/mattloper/opendr)  ( for dataset preparation; install from source with "python setup.py build" and "python setup.py install")
 - pyopengl
 - [mesh](https://github.com/MPI-IS/mesh)
 
