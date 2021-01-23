@@ -6,6 +6,7 @@ Created on Tue Jan 19 11:19:32 2021
 @author: Zhantao
 """
 
+import argparse
 from os import makedirs
 from os.path import abspath, isfile, exists, join as pjn
 import sys 
@@ -22,6 +23,7 @@ from math import floor
 import pickle as pkl
 from glob import glob
 
+import yaml
 import torch
 from torch import Tensor
 import numpy as np
@@ -31,60 +33,55 @@ from MGN_helper.utils.smpl_paths import SmplPaths
 from ch_smpl import Smpl
 from interpenetration_ind import remove_interpenetration_fast
 
-_neglectParts_ = {'face and hand': (0,0,255),
-                  'foots': (255, 0, 0) 
+_neglectParts_ = {'face and hand': (0, 0, 255),
+                  'foots': (255, 0, 0),
+                  'hairs': (0, 255, 0)
                   }
 
-def load_smpl_from_file(file):
-    dat = pkl.load(open(file, 'rb'), encoding='iso-8859-1')
-    dp = SmplPaths(gender=dat['gender'])
-    smpl_h = Smpl(dp.get_hres_smpl_model_data())
-
-    smpl_h.pose[:] = dat['pose']
-    smpl_h.betas[:] = dat['betas']
-    smpl_h.trans[:] = dat['trans']
-
-    return smpl_h
-
-def compute_offset_tPose(garPath, vert_inds, smpl):
+def compute_offset_tPose(smpl, garPath, thresholds, num_separations, enableVis = False):
     
     ## Get the original body mesh of the garment
     garFolder = '/'.join(garPath.split('/')[:-1])
-    garment_org_body_unposed = load_smpl_from_file(pjn(garFolder, 'registration.pkl'))
-    garment_org_body_unposed.pose[:] = 0
-    garment_org_body_unposed.trans[:] = 0
-    garment_org_body_unposed = Mesh(garment_org_body_unposed.v, garment_org_body_unposed.f)
+    orig_body = pkl.load(open(pjn(garFolder, 'registration.pkl'), 'rb'), encoding='iso-8859-1')
     
+    smpl.v_personal[:] = np.zeros_like(smpl.r)
+    smpl.pose[:]  = 0
+    smpl.betas[:] = orig_body['betas']
+    smpl.trans[:] = 0
+    garment_org_body_unposed = Mesh(smpl.r, smpl.f)
+
     ## Get the original garment
     garment_unposed = Mesh(filename = garPath)
     
     ## remove interpenetration
-    # garment_unposed_interp = remove_interpenetration_fast(garment_unposed, garment_org_body_unposed)
-
+    garment_unposed_interp = remove_interpenetration_fast(garment_unposed, garment_org_body_unposed)
+    
     ## compute normal guided displacement
     body_normal = Tensor(garment_org_body_unposed.estimate_vertex_normals())
+    
     offsets_tPose = computeNormalGuidedDiff(
         Tensor(garment_org_body_unposed.v), 
         body_normal, 
-        Tensor(garment_unposed.v), 
-        Tensor(garment_unposed.f.copy().astype('int32')).long(),
-        num_separation = 23, 
-        max_displacement = 0.2
+        Tensor(garment_unposed_interp.v), 
+        Tensor(garment_unposed_interp.f.copy().astype('int32')).long(),
+        num_separation = num_separations, 
+        max_displacement = thresholds['max_offsets']
         )
     
     offsets_tPose = meshDisplacementFilter(
         Tensor(offsets_tPose), 
-        Tensor(garment_unposed.f.copy().astype('int32')).long(),
-        filterThres = 0.05,
-        diffThreshold = 0.03
+        Tensor(garment_org_body_unposed.f.copy().astype('int32')).long(),
+        filterThres = thresholds['offsets_check_threshold'],
+        diffThreshold = thresholds['max_diffOffsets']
         )
     
-    v = garment_org_body_unposed.v + offsets_tPose
-    body = Mesh(v, garment_org_body_unposed.f)
-    
-    mvs = MeshViewers((1, 1))
-    mvs[0][0].set_static_meshes([body])
+    if enableVis:
+        v = garment_org_body_unposed.v + offsets_tPose
+        body = Mesh(v, garment_org_body_unposed.f)
         
+        mvs = MeshViewers((1, 1))
+        mvs[0][0].set_static_meshes([body])
+            
     return offsets_tPose
 
 def computeNormalGuidedDiff(srcVerts: Tensor, srcNormal: Tensor, 
@@ -147,10 +144,20 @@ def computeNormalGuidedDiff(srcVerts: Tensor, srcNormal: Tensor,
         t, b1, b2 = dispVec[0], dispVec[1], dispVec[2]
     
         # filter invalid intersection points outside the triplets and those
-        # are far away from the source points(SMPL vertices)
+        # are too far away from the source points.
+        # Here we allow small negative dist because:
+        #     if we do not allow neg dist, when there were interpenetrations    {interpenetration free is not guranteed by the funciton}
+        #        between garment and body in inner side of legs, leg verts      {remove_interpenetration_fast() of MGN implementation. }
+        #        can only find facets from the other leg and create artifacts.
+        #     if we allow large neg dist, verts can find facets on the other    {in the wardrobe, some pants and shirts only have half }
+        #        side, which corr. to verts on the other side. This can result  {side mesh, not sure why but we need to work aroud this}
+        #        in void body parts, e.g. missing ankle.
+        # So, allwoing a proper small neg dist could be a good solution and we
+        # choose 1cm.
         intersection_mask = (b1 > 0).logical_and(b2 > 0)      \
                                     .logical_and(b1+b2 < 1)   \
-                                    .logical_and(t.abs() < max_displacement)
+                                    .logical_and(t > -0.01)   \
+                                    .logical_and(t.abs() < max_displacement)    
         
         # choose the closest displacement if not unique
         indice = torch.nonzero(intersection_mask,as_tuple=False)
@@ -222,13 +229,8 @@ def meshDisplacementFilter(displacements: Tensor, triplets: Tensor,
 
     return o_offset.numpy()
 
-def seg_filter(subObj, segmentation, offsets):
-    ## load segmentation
-    subObj.set_texture_image(segmentation)
-
-    mvs = MeshViewers((1, 1))
-    mvs[0][0].set_static_meshes([subObj])
-    
+def seg_filter(subObj, offsets):
+  
     ## get per-vertex color as segmentation
     verts_allUV = subObj.texture_coordinates_by_vertex()
     verts_uvs = np.array([uv[0] for uv in verts_allUV])
@@ -258,16 +260,11 @@ def save_offset(offsets_hres, offsets_std, savePath):
 
 class MGN_bodyAug_preparation(object):
         
-    def __init__(self, 
-                 path_MGN_major: str, 
-                 path_MGN_wardrobe: str, 
-                 pathSMPL: str,
-                 path_downMat: str,
-                 fts_file: str):
+    def __init__(self, cfg):
                 
-        self.path_smpl = pathSMPL
-        self.path_subjects = sorted( glob(pjn(path_MGN_major, '*')) )
-        self.path_wardrobe = sorted( glob(pjn(path_MGN_wardrobe, '*')) )
+        self.path_smpl = cfg['smplModel']
+        self.path_subjects = sorted( glob(pjn(cfg['datarootMGN'], '*')) )
+        self.path_wardrobe = sorted( glob(pjn(cfg['wardrobeMGN'], '*')) )
         
         ## <==== collect subjects and the corresponding garments
         self.text, self.disp = [], []
@@ -300,7 +297,7 @@ class MGN_bodyAug_preparation(object):
             'TShirtNoCoat': [], 
             'LongCoat': []
             }
-        skipSamples = ['023', '025', '028', '030', '038', '041', '055', '059', '085', '099']
+        skipSamples = ['006', '023', '025', '028', '030', '038', '041', '051', '055', '059', '085', '099']
         for garments in self.path_wardrobe:
             # collect smpl parameters in wardrobe to enrich the dataset
             pathRegistr  = pjn(garments, 'registration.pkl')
@@ -324,19 +321,22 @@ class MGN_bodyAug_preparation(object):
             elif 'LongCoat' in suit:
                 self.wardrobe['LongCoat'].append(garments)
         
-        ## prepare target body
+        ## <==== prepare high resolution SMPL, standard SMPL and downsampling mat
         dp = SmplPaths()
-        vt, ft = dp.get_vt_ft_hres()
-        self.smpl = Smpl(dp.get_hres_smpl_model_data())
+        self.hresSMPL = Smpl(dp.get_hres_smpl_model_data())
+        self.stdSMPL  = Smpl(dp.get_smpl_file())
+        self.downMat  = np.load(cfg['path_downMat'])
+        self.stdSMPLmesh = Mesh(filename=cfg['smplMesh_std'])    # std res mesh of SMPL model
         
-        ## this file contains correspondances between garment vertices and smpl body
-        self.vert_indices, self.fts = pkl.load(open(fts_file, 'rb'), encoding='iso-8859-1')
-        self.fts['naked'] = ft
-        
-        ## this file contains matrix to convert hres mesh to std smpl mesh (t-pose/0-pose only) 
-        ## get standard mesh for verification, can be removed
-        self.downMat = np.load(path_downMat)
-        self.stdSMPL = Smpl(dp.get_smpl_file())
+        ## <==== get configurations for post processing
+        self.verbose_on = cfg['show_intermediateMeshes']
+        self.num_separation = {'hres': cfg['number_separation_hres'],
+                               'std' : cfg['number_separation_std' ]}
+        self.thresholds = {'coats': {}, 'pants':{}}
+        for ind, key in enumerate(sorted(self.thresholds.keys())):
+            self.thresholds[key]['max_offsets'] = cfg['max_offsets'][ind]
+            self.thresholds[key]['offsets_check_threshold'] = cfg['offsets_check_threshold'][ind]
+            self.thresholds[key]['max_diffOffsets'] = cfg['max_diffOffsets'][ind]
     
     def setSuit(self, subInd: int, each_Nsuit: int):
         # We keep the augmented garments to have the same style as the 
@@ -365,75 +365,72 @@ class MGN_bodyAug_preparation(object):
         
         return coatPath, pantsPath
     
-    def dressBody(self, coatPath: str, pantsPath: str, tarPara: list, 
-                  subObj: Mesh, garmtex: str = None, subTex: str = None):
+    def computeOffsets_guided(
+            self, coatPath: str, pantsPath: str, tarPara: list, 
+            subObj: Mesh = None, subTex: str = None, is_hres: bool = True):
         
-        ## Generate target SMPL body 
-        self.smpl.pose[:]  = tarPara[0]
-        self.smpl.betas[:] = tarPara[1]
-        self.smpl.trans[:] = 0    # trans of the garments are set to 0, so we need to set thi to 0.
-        self.smpl.v_personal[:] = np.zeros_like(self.smpl.r)
+        smpl = self.hresSMPL.copy() if is_hres else self.stdSMPL.copy()
+        splt = self.num_separation[ 'hres' if is_hres else 'std' ]
         
         ## per-vertex offsets
-        v_offsets_t = np.zeros_like(self.smpl.r)
+        v_offsets_t = np.zeros_like(smpl.r)
         
         ## Pants
-        pantsStyle = pantsPath.split('/')[-1][:-4]
-        v_pants_inds = self.vert_indices[pantsStyle]
-        offset_pants_t = compute_offset_tPose(pantsPath, v_pants_inds, self.smpl)
-        
-        mask = np.linalg.norm(offset_pants_t, axis=1) > np.linalg.norm(v_offsets_t, axis=1)    # keep the greater distance
+        offset_pants_t = compute_offset_tPose(
+            smpl, pantsPath, self.thresholds['pants'], splt, self.verbose_on
+            )
+        mask = np.linalg.norm(offset_pants_t, axis=1) > np.linalg.norm(v_offsets_t, axis=1)
         v_offsets_t[mask] = offset_pants_t[mask]
         
         ## coat
         # None for sub84 and others subs without coat in their folder
         if coatPath is not None:    
-            coatStyle = coatPath.split('/')[-1][:-4]
-            v_coat_inds = self.vert_indices[coatStyle]
-            offset_coat_t = compute_offset_tPose(coatPath, v_coat_inds, self.smpl)
-            
-            mask = np.linalg.norm(offset_coat_t, axis=1) > np.linalg.norm(v_offsets_t, axis=1)    # keep the greater distance
+            offset_coat_t = compute_offset_tPose(
+                smpl, coatPath, self.thresholds['coats'], splt, self.verbose_on
+                )
+            mask = np.linalg.norm(offset_coat_t, axis=1) > np.linalg.norm(v_offsets_t, axis=1)
             v_offsets_t[mask] = offset_coat_t[mask]
         
         ## Dress body
-        self.smpl.pose[:]  = tarPara[0]
-        self.smpl.betas[:] = tarPara[1]
-        self.smpl.trans[:] = tarPara[2]
-        self.smpl.v_personal[:] = v_offsets_t
-        dressed_body = Mesh(self.smpl.r, self.smpl.f)
-        dressed_body.vt = subObj.vt
-        dressed_body.ft = subObj.ft
-        dressed_body.set_texture_image(subTex)
+        if self.verbose_on and subObj is not None:
+            smpl.pose[:]  = tarPara[0]
+            smpl.betas[:] = tarPara[1]
+            smpl.trans[:] = tarPara[2]
+            smpl.v_personal[:] = v_offsets_t
+            dressed_body = Mesh(smpl.r, smpl.f)
+            dressed_body.vt = subObj.vt
+            dressed_body.ft = subObj.ft
+            dressed_body.set_texture_image(subTex)
+            
+            mvs = MeshViewers((1, 1))
+            mvs[0][0].set_static_meshes([dressed_body])
         
-        mvs = MeshViewers((1, 1))
-        mvs[0][0].set_static_meshes([dressed_body])
-        
-        return v_offsets_t, dressed_body
+        return v_offsets_t
     
-    def computeOffset_direct(self, subObj, tarPara):
+    def computeOffsets_direct(self, subObj, tarPara):
         ## only works when the registered subject is available
         
         ## compute the posed offsets
-        self.smpl.v_personal[:] = np.zeros_like(self.smpl.r)
-        self.smpl.pose[:]  = tarPara[0]
-        self.smpl.betas[:] = tarPara[1]
-        self.smpl.trans[:] = tarPara[2]
-        offsets_p = subObj.v - self.smpl.r
+        self.hresSMPL.v_personal[:] = np.zeros_like(self.hresSMPL.r)
+        self.hresSMPL.pose[:]  = tarPara[0]
+        self.hresSMPL.betas[:] = tarPara[1]
+        self.hresSMPL.trans[:] = tarPara[2]
+        offsets_p = subObj.v - self.hresSMPL.r
         
         ## unpose the offsets
         # 1. put on the offsets to body and do inverse pose
-        self.smpl.v_personal[:] = offsets_p
-        self.smpl.pose[:]  = -tarPara[0]    # inverse is simply minors
-        self.smpl.betas[:] = tarPara[1]
-        self.smpl.trans[:] = tarPara[2]
-        invposed_body_off = self.smpl.r
+        self.hresSMPL.v_personal[:] = offsets_p
+        self.hresSMPL.pose[:]  = -tarPara[0]    # inverse is simply minors
+        self.hresSMPL.betas[:] = tarPara[1]
+        self.hresSMPL.trans[:] = tarPara[2]
+        invposed_body_off = self.hresSMPL.r
         
         # 2. generate naked body in inverse pose
-        self.smpl.v_personal[:] = np.zeros_like(self.smpl.r)
-        self.smpl.pose[:]  = -tarPara[0]
-        self.smpl.betas[:] = tarPara[1]
-        self.smpl.trans[:] = tarPara[2]
-        invposed_body = self.smpl.r
+        self.hresSMPL.v_personal[:] = np.zeros_like(self.hresSMPL.r)
+        self.hresSMPL.pose[:]  = -tarPara[0]
+        self.hresSMPL.betas[:] = tarPara[1]
+        self.hresSMPL.trans[:] = tarPara[2]
+        invposed_body = self.hresSMPL.r
         
         # 3. get the unposed/t-posed offsets
         offsets_t = invposed_body_off - invposed_body
@@ -451,12 +448,14 @@ class MGN_bodyAug_preparation(object):
             subObj  = Mesh(filename = pjn(subPath, 'smpl_registered.obj'))  
             subTex  = pjn(subPath, 'registered_tex.jpg')  # texture map for body
             subSeg  = pjn(subPath, 'segmentation.png')    # segmentation map for body 
-            garmtex = pjn(subPath, 'multi_tex.jpg')       # texture map for garments
+            
+            subObj.set_texture_image(subSeg)  # prepare for seg_filter
+            self.stdSMPLmesh.set_texture_image(subSeg)
             
             ## compute offsets directly 
             tarPara = [self.poses[subInd], self.betas[subInd], self.trans[subInd]]
-            offsets_dir_t  = self.computeOffset_direct(subObj, tarPara)       # compute t-offset of the whole body from GT obj
-            offsets_dir_tf = seg_filter(subObj, subSeg, offsets_dir_t)      # remove meaningless offsets (esp. not covered)
+            offsets_dir_t  = self.computeOffsets_direct(subObj, tarPara)       # compute t-offset of the whole body from GT obj
+            offsets_dir_tf = seg_filter(subObj, offsets_dir_t)      # remove meaningless offsets (esp. not covered)
             offsets_std_tf = self.downMat.dot(offsets_dir_tf.ravel()[:20670]).reshape(-1,3)   # downsample offsets to standard smpl mesh
             
             # vis to debug, can be removed
@@ -468,23 +467,24 @@ class MGN_bodyAug_preparation(object):
                 ## randomly choose a suit for the body
                 coatPathList, pantsPathList = self.setSuit(subInd, each_Nsuit)
                 
-                considering different threshold for coat and pants, even for diff coats
-                
-                for coatPath, pantsPath in zip(coatPathList, pantsPathList): 
-                    ## get the offset in t pose
+                for coatPath, pantsPath in zip(coatPathList, pantsPathList):
+                    ## get offsets in t pose for both hres and std model
                     tarPara = [self.poses[poseInd], self.betas[subInd], self.trans[subInd]]
-                    offset_t, dressedSub = self.dressBody(coatPath, pantsPath, tarPara, subObj, garmtex, subTex)
+                    offset_t_hre = self.computeOffsets_guided(coatPath, pantsPath, tarPara, subObj, subTex)
                     
-                    offset_t_std = self.downMat.dot(offset_t.ravel()[:20670]).reshape(-1,3)
+                    offset_t_std = self.computeOffsets_guided(
+                        coatPath, pantsPath, tarPara, self.stdSMPLmesh, subTex, is_hres=False
+                        )
                     
                     ## remove offsets according to segmentation
-                    offset_t_fil = seg_filter(subObj, subSeg, offset_t)
-                    ## downsample the offsets to standard smpl mesh resolution
-                    offset_t_std_fil = self.downMat.dot(offset_t_fil.ravel()[:20670]).reshape(-1,3)
+                    offset_t_hre_fil = seg_filter(subObj, offset_t_hre)
+
+                    offset_t_std_fil = seg_filter(self.stdSMPLmesh, offset_t_std)
                     
                     # vis to debug, can be removed
-                    offsetList = [offset_t, offset_t_std, offset_t_fil, offset_t_std_fil]
-                    self.vis_offsets_debug(offsetList, tarPara, row=2, col=2)
+                    if self.verbose_on:
+                        offsetList = [offset_t_hre, offset_t_std, offset_t_hre_fil, offset_t_std_fil]
+                        self.vis_offsets_debug(offsetList, tarPara, row=2, col=2)
                     
                     
     def vis_offsets_debug(self, offsetsList, posePara, row=1, col=2):
@@ -495,11 +495,11 @@ class MGN_bodyAug_preparation(object):
         
         for offset in offsetsList:
             if offset.shape[0] > 6890:
-                self.smpl.v_personal[:] = offset
-                self.smpl.pose[:]  = posePara[0]
-                self.smpl.betas[:] = posePara[1]
-                self.smpl.trans[:] = posePara[2]
-                hresbody = Mesh(self.smpl.r, self.smpl.f)
+                self.hresSMPL.v_personal[:] = offset
+                self.hresSMPL.pose[:]  = posePara[0]
+                self.hresSMPL.betas[:] = posePara[1]
+                self.hresSMPL.trans[:] = posePara[2]
+                hresbody = Mesh(self.hresSMPL.r, self.hresSMPL.f)
                 bodyList.append(hresbody)
             else:
                 self.stdSMPL.v_personal[:] = offset
@@ -517,10 +517,26 @@ class MGN_bodyAug_preparation(object):
         
 if __name__ == "__main__":
 
-    pathmodel = '/home/logix/Documents/DEBOR/body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl'
-    path = '../../datasets/Multi-Garment_dataset'
-    path_wardrobe = '../../datasets/MGN_dataset_02'
-    path_fts_file = '../../body_model/garment_fts.pkl'
-    path_downMat  = '../../body_model/downConvMat_MGN.npy'
-    mgn  = MGN_bodyAug_preparation(path, path_wardrobe, pathmodel, path_downMat, path_fts_file)
+    # parse arguments
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--dataset_cfg', action='store', type=str, 
+                        help='Path to the configuration for rendering.', 
+                        default = './dataset_cfg.yaml')
+    args = parser.parse_args()
+
+    # read preparation configurations
+    with open(args.dataset_cfg) as f:
+        cfgs = yaml.load(f, Loader=yaml.FullLoader)
+        print('\nDataset preparation configurations:\n')
+        for key, val in cfgs.items():
+            if 'enable' in key:
+                print('\n')
+            print('%-25s:'%(key), val)    
+    
+    # require confirmation
+    if cfgs['requireConfirm']:
+        msg = 'Do you confirm that the settings are correct?'
+        assert input("%s (Y/N) " % msg).lower() == 'y', 'Settings are not comfirmed.'    
+
+    mgn  = MGN_bodyAug_preparation(cfgs)
     mgn.generateDataset()
