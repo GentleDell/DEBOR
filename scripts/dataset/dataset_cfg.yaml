@@ -28,11 +28,13 @@ light_horiz_distance: [4]       # horizontal distance of the lights
 
 # mesh displacements settings
 enable_displacement: False       # enable GT displacements computation 
+show_intermediateMeshes: True    # show all intermediate results/meshs
+save_displacements: True
+
 number_separation_hres: 23       # separate point cloud to reduce memory usage
 number_separation_std: 5         # separate point cloud to reduce memory usage
-
 max_offsets: [0.15, 0.075]       # the maximum acceptable displacement for coats and pants, [meter]
 offsets_check_threshold: [0.1, 0.05]    # threshold to specify suspects for coats and pants, [meter]
 max_diffOffsets: [0.03, 0.03]    # threshold to confirm outliers for coats and pants, [meter]
 
-show_intermediateMeshes: True    # show all intermediate results/meshs
+
