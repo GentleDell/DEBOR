@@ -6,10 +6,10 @@ cachePath: "./"
 requireConfirm: True            # require confirmation before executing 
 smplModel: "../../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
 smplMesh_std: "../../body_model/text_uv_coor_smpl.obj"
-blenderPath: "../../../../../Tools/blender-2.90.1-linux64/blender"
+blenderPath: "../../../../../Tools/blender-2.91.0-linux64/blender"
 
 # MGN dataset paths
-datarootMGN: "../../datasets/Multi-Garment_dataset"
+datarootMGN: "../../datasets/MGN_samples"
 wardrobeMGN: "../../datasets/MGN_dataset_02"
 path_downMat: '../../body_model/downConvMat_MGN.npy'
 
@@ -27,7 +27,7 @@ light_horiz_distance: [4]       # horizontal distance of the lights
 
 
 # mesh displacements settings
-enable_displacement: False       # enable GT displacements computation 
+enable_offsets: False       # enable GT displacements computation 
 show_intermediateMeshes: True    # show all intermediate results/meshs
 save_displacements: True
 

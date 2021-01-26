@@ -428,6 +428,10 @@ if __name__ == "__main__":
     if cfgs['requireConfirm']:
         msg = 'Do you confirm that the settings are correct?'
         assert input("%s (Y/N) " % msg).lower() == 'y', 'Settings are not comfirmed.'    
-
-    mgn  = MGN_bodyAug_preparation(cfgs)
-    mgn.generateDataset()
+    
+    # create enriched MGN dataset
+    if cfgs['enable_offsets']:
+        mgn  = MGN_bodyAug_preparation(cfgs)
+        mgn.generateDataset()
+        
+    print("Done")

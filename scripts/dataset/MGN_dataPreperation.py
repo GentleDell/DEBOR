@@ -21,7 +21,7 @@ import yaml
 import numpy as np
 import matplotlib.pyplot as plt
 from utils.render_util import light, camera, getMaterialPath
-from utils.mesh_util import read_Obj, meshDifferentiator
+from utils.mesh_util import read_Obj
 # import torch
 # import models.camera as cameraPers
 
@@ -305,47 +305,28 @@ def boundingbox(imagefolder: str, cameraIdx: int = 0, marginSize: int = 25):
 
 if __name__ == "__main__":
     '''
-    Renderning images for meshes of the MGN dataset and computing the ground 
-    truth displacements, colors, and segmentations for vertices.
+    Renderning images for meshes of the (enriched) MGN dataset.
     '''
     # parse arguments
     parser = argparse.ArgumentParser()
-    parser.add_argument('--dataset_preparation_cfg', action='store', type=str, 
+    parser.add_argument('--dataset_cfg', action='store', type=str, 
                         help='Path to the configuration for rendering.', 
-                        default = './dataset_preparation_cfg.yaml')
+                        default = './dataset_cfg.yaml')
     args = parser.parse_args()
 
     # read preparation configurations
-    with open(args.dataset_preparation_cfg) as f:
+    with open(args.dataset_cfg) as f:
         cfgs = yaml.load(f, Loader=yaml.FullLoader)
         print('\nDataset preparation configurations:\n')
         for key, val in cfgs.items():
+            if 'enable' in key:
+                print('\n')
             print('%-25s:'%(key), val)    
     
     # require confirmation
     if cfgs['requireConfirm']:
         msg = 'Do you confirm that the settings are correct?'
         assert input("%s (Y/N) " % msg).lower() == 'y', 'Settings are not comfirmed.'
-    
-    if cfgs['enable_augmentation']:
-        outstr = \
-        ''' 
-        To do augmentation, folders of subjects must have the "/GroundTruth"
-        subfolder containing displacements for augmentation.
-    
-        Thus, a proper order of the dataset properation is:
-        1. run MGN_dataPreperation.py with 'enable_displacement' on and 
-        "enable_rendering" off.
-        
-        2. run MGN_dataPreAugmentation.py to augment the dataset.
-        
-        3. run MGN_dataPreperation.py with 'enable_displacement' off and 
-        "enable_rendering" on to render RGB images.
-        
-        No operation would be conducted after showing this message.
-        '''
-        print(outstr)
-        sys.exit(0)
     
     # prepare the data for rendering
     prepareData(cfgs)
@@ -356,22 +337,14 @@ if __name__ == "__main__":
         cachePathAbs = str(pathlib.Path(__file__).parent.absolute())
         _run_blender(cfgs['blenderPath'], renderPath=renderScript, cachePath = cachePathAbs)
     
-    # compute the ground truth displacements; verify the quality of the 
-    # rendered image and get the bounding box
-    mesh_differ = meshDifferentiator(cfgs)
-    for folder in sorted(glob( pjn(cfgs['datarootMGN'], '*' ) )):
-        
-        # GT displacements
-        if cfgs['enable_displacement']:
-            print("computing the GT displacements for: ", folder)
-            mesh_differ.computeDisplacement(folder)
-        
-        # rendering verification and generate boundingbox
-        if cfgs['enable_rendering']:
-            print("verifying camera parmaeters.")
-            numCameras = cfgs['numCircCameras'] * len(cfgs['camera_heights']) * \
-                          len(cfgs['camera_horiz_distance']) * len(cfgs['camera_resolution'])
-            for cameraIdx in range(numCameras):
-                boundingbox( pjn(folder, 'rendering'), cameraIdx, marginSize = 10)
+        # verify the quality of the rendered image and get the bounding box
+        for folder in sorted(glob( pjn(cfgs['datarootMGN'], '*' ) )):
+                # rendering verification and generate boundingbox
+                print("verifying camera parmaeters.")
+                numCameras = cfgs['numCircCameras'] * len(cfgs['camera_heights']) * \
+                              len(cfgs['camera_horiz_distance']) * len(cfgs['camera_resolution'])
+                for cameraIdx in range(numCameras):
+                    boundingbox( pjn(folder, 'rendering'), cameraIdx, marginSize = 10)
     
+    print("Done")
     

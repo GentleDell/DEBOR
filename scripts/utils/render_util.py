@@ -377,9 +377,8 @@ def getMaterialPath(bodyRoot: str):
         sample = os.path.abspath(sample)
         sampleDict = {"sampleRootPath": sample,
                       "smpl_registered_path": pjn(sample, 'smpl_registered.obj'),
-                      "smpl_registered_texturePath": pjn(sample, 'registered_tex.jpg'),
-                      "scan_path": pjn(sample, 'scan.obj'),
-                      "scan_texturePath": pjn(sample, 'scan_tex.jpg')}
+                      "smpl_registered_texturePath": pjn(sample, 'registered_tex.jpg')
+                      }
         output.append(sampleDict)
         
     return output
