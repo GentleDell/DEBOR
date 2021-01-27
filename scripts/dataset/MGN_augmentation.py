@@ -24,6 +24,7 @@ import yaml
 import torch
 
 import numpy as np
+import scipy
 from psbody.mesh import Mesh, MeshViewers
 
 from MGN_helper.utils.smpl_paths import SmplPaths
@@ -149,8 +150,8 @@ class MGN_bodyAug_preparation(object):
         dp = SmplPaths()
         self.hresSMPL = Smpl(dp.get_hres_smpl_model_data())
         self.stdSMPL  = Smpl(dp.get_smpl_file())
-        self.downMat  = np.load(cfg['path_downMat'])
-        self.stdSMPLmesh = Mesh(filename=cfg['smplMesh_std'])    # std res mesh of SMPL model
+        self.downMat  = scipy.sparse.load_npz(cfg['path_downMat'])      # using sparse matrix saves a lot mem while resErr is @1e-6
+        self.stdSMPLmesh = Mesh(filename=cfg['smplMesh_std'])           # std res mesh of SMPL model
         
         ## <==== get configurations for post processing
         self.verbose_on = cfg['show_intermediateMeshes']
