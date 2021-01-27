@@ -5,7 +5,7 @@ Created on Thu Nov 19 22:19:17 2020
 
 @editor: zhantao
 """
-from os.path import join as pjn, isdir
+from os.path import join as pjn
 from glob import glob
 from ast import literal_eval
 import pickle as pickle
@@ -75,10 +75,12 @@ class BaseDataset(Dataset):
             self.bgimages = None
         
         # load datatest
-        self. objname, self.imgname, self.center, self.scale = [], [], [], []
+        self.objname, self.imgname, self.center, self.scale = [], [], [], []
         self.camera, self.lights = [], []      
-        self.meshGT, self.smplGTParas, self.UVmapGT, self.isAug = [],[],[],[]
+        self.GToffsets, self.GTsmplParas, self.GTtextureMap = [],[],[]
         for obj in self.obj_dir:
+            
+            self.objname.append(obj.split('/')[-1])
             
             # read images and rendering settings
             for path_to_image in sorted( glob( pjn(obj, 'rendering/*smpl_registered.png')) ):
@@ -112,10 +114,12 @@ class BaseDataset(Dataset):
                     cameraExtrinsic = literal_eval(f.readline())                    
                 camthis = cameraClass(
                     projModel  ='perspective',
-                    intrinsics = np.array(cameraIntrinsic))
+                    intrinsics = np.array(cameraIntrinsic)
+                    )
                 camthis.setExtrinsic(
                     rotation = np.array(cameraExtrinsic[0]), 
-                    location = np.array(cameraExtrinsic[1]))
+                    location = np.array(cameraExtrinsic[1])
+                    )
                 self.camera.append( camthis.getGeneralCamera() )
             
                 # light settings
@@ -124,13 +128,13 @@ class BaseDataset(Dataset):
                     self.lights.append(lightSettings)           
                     
             # read ground truth displacements and texture vector
-            path_to_GT = pjn(obj, 'GroundTruth')
-            displace   = np.load( pjn(path_to_GT, 'normal_guided_displacements_oversample_OFF.npy') )
-            # displaceOv = np.load( pjn(path_to_GT, 'normal_guided_displacements_oversample_ON.npy') )
-            texture    = np.load( pjn(path_to_GT, 'vertex_colors_oversample_OFF.npy') )
-            # textureOv  = np.load( pjn(path_to_GT, 'vertex_colors_oversample_ON.npy') )
-            self.meshGT.append({'displacement': displace,
-                                'texture': texture})
+            path_to_offsets = pjn(obj, 'gt_offsets')
+            offsets = np.load( pjn(path_to_offsets, 'offsets_std.npy') )       # hres offsets is in offsets_hres.npy
+            
+            create the full dataset;
+            normalize the offsets here!
+            
+            self.GToffsets.append({'offsets': offsets})
             
             # read smpl parameters 
             #     The 6D rotation representation is used here.
@@ -140,21 +144,14 @@ class BaseDataset(Dataset):
             jointsRot6d  = axisAngle_to_Rot6d(torch.as_tensor(registration['pose'].reshape([-1, 3])))
             bodyBetas    = (registration['betas'], registration['betas'][0])[len(registration['betas'].shape) == 2]
             bodyTrans    = (registration['trans'], registration['trans'][0])[len(registration['trans'].shape) == 2]
-            self.smplGTParas.append({'betas': torch.as_tensor(bodyBetas),
+            self.GTsmplParas.append({'betas': torch.as_tensor(bodyBetas),
                                      'pose':  jointsRot6d, 
                                      'trans': torch.as_tensor(bodyTrans) })
             
             # read and resize UV texture map same for the segmentation 
-            isAug = False
             UV_textureMap = cv2.imread( pjn(obj, 'registered_tex.jpg') )[:,:,::-1]/255.0
             UV_textureMap = cv2.resize(UV_textureMap, (self.options.img_res, self.options.img_res), cv2.INTER_CUBIC)
-            if "_pose" in obj.split('/')[-1]:
-                isAug = True
-                UV_textureMap = np.flip(UV_textureMap, axis = 0).copy()
-            self.isAug.append(isAug)
-            self.UVmapGT.append(UV_textureMap)
-            
-            self.objname.append(obj.split('/')[-1])
+            self.GTtextureMap.append(UV_textureMap)
             
         # TODO: change the mean and std to our case
         IMG_NORM_MEAN = [0.485, 0.456, 0.406]
@@ -162,8 +159,8 @@ class BaseDataset(Dataset):
         self.normalize_img = Normalize(mean=IMG_NORM_MEAN, std=IMG_NORM_STD)       
 	
         # If False, do not do augmentation
-        self.use_augmentation = use_augmentation and self.options.use_augmentation
-        self.use_augmentation_rgb = use_augmentation and self.options.use_augmentation_rgb
+        self.use_augmentation_rot = use_augmentation and self.options.use_augmentation_rot    # rotation augmentation 
+        self.use_augmentation_rgb = use_augmentation and self.options.use_augmentation_rgb    # channel augmentation
         
         # lenght of dataset
         self.length = len(self.imgname)
@@ -217,7 +214,7 @@ class BaseDataset(Dataset):
         indexMap
 
         '''
-        SMPLparams = self.smplGTParas[index//self.options.img_per_object]
+        SMPLparams = self.GTsmplParas[index//self.options.img_per_object]
         jointsPose = rot6d_to_axisAngle(SMPLparams['pose']).flatten().float()
         
         # load SMPL parameters and model; transform vertices and joints.
@@ -228,7 +225,7 @@ class BaseDataset(Dataset):
         
         # read displacements
         disp = torch.Tensor(
-            self.meshGT[ index//self.options.img_per_object ]['displacement'])
+            self.GToffsets[ index//self.options.img_per_object ]['displacement'])
         
         # # debug
         # flip,pn,rot,sc = self.augm_params()
@@ -280,8 +277,8 @@ class BaseDataset(Dataset):
         rot = 0             # rotation
         sc = 1              # scaling
         if self.split == 'train':
-            # We flip with probability 1/2, now 0
-            if np.random.uniform() <= 0.0:
+            # flip with probability 1/2, but now we set it to 0
+            if np.random.uniform() < 0.0:
                 flip = 1
 	    
             # Each channel is multiplied with a number 
@@ -296,7 +293,8 @@ class BaseDataset(Dataset):
             # in the area [1-scaleFactor,1+scaleFactor]
             sc = min(1+self.options.scale_factor,
                     max(1-self.options.scale_factor, np.random.randn()*self.options.scale_factor+1))
-            # but it is zero with probability 3/5, now 1
+            
+            # we set the rotation to 0 all the time now
             if np.random.uniform() <= 1:
                 rot = 0
 	
@@ -305,7 +303,7 @@ class BaseDataset(Dataset):
     def rgb_processing(self, rgb_img, center, scale, rot, flip, pn):
         """Process rgb image and do augmentation."""
         # crop and rotate the image
-        if self.use_augmentation:
+        if self.use_augmentation_rot:
             rgb_img = crop(rgb_img, center, scale, 
                           [self.options.img_res, self.options.img_res], rot=rot)
         else:
@@ -412,20 +410,18 @@ class BaseDataset(Dataset):
         item['center'] = np.array(center).astype(np.float32)
         item['orig_shape'] = orig_shape
         
-        item['meshGT'] = self.meshGT[ index//self.options.img_per_object ]
-        item['smplGT'] = self.smplGTParas[ index//self.options.img_per_object ]
-        item['UVmapGT']= self.UVmapGT[ index//self.options.img_per_object ]
-        item['isAug']  = self.isAug[ index//self.options.img_per_object ]
+        item['GToffsets_t'] = self.GToffsets[ index//self.options.img_per_object ]
+        item['GTsmplParas'] = self.GTsmplParas[ index//self.options.img_per_object ]
+        item['GTtextureMap']= self.GTtextureMap[ index//self.options.img_per_object ]
         
         GTcamera = self.camera_trans(
             img, center, sc*scale, rot,flip,self.camera[index],self.options)
-        # item['indexMapGT'] = self.getIndicesMap(index, GTcamera)    # not used now
         
         # In camera, we predict f and 6d rotation only, because:
         #     1. the Cx Cy are assumed to be the center of the image
         #     2. t vector is decided by the location of the bbox, which can
         #        not be recovered from the input cropped image.
-        item['cameraGT'] = {
+        item['GTcamera'] = {
             'f_rot':np.hstack([np.array(GTcamera['intrinsic'][0,0][None,None]), 
                        rotMat_to_rot6d(GTcamera['extrinsic'][:,:3][None])]),
             't': GTcamera['extrinsic'][:,-1]}

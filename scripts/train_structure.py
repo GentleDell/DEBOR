@@ -13,7 +13,6 @@ if abspath('./third_party/smpl_webuser') not in sys.path:
     sys.path.append(abspath('./third_party/smpl_webuser'))
 if abspath('./third_party/pytorch-msssim') not in sys.path:
     sys.path.append(abspath('./third_party/pytorch-msssim'))
-from collections import namedtuple
 
 from tqdm import tqdm
 tqdm.monitor_interval = 0
@@ -21,7 +20,6 @@ import torch
 import matplotlib.pyplot as plt
 import numpy as np
 import open3d as o3d
-from pytorch3d.structures import Meshes
 
 from dataset import MGNDataset
 from utils import Mesh, BaseTrain, CheckpointDataLoader
@@ -132,35 +130,35 @@ class trainer(BaseTrain):
     def convert_GT(self, input_batch):     
         
         smplGT = torch.cat([
-            # cameraGT is not used, here is a placeholder
+            # GTcamera is not used, here is a placeholder
             torch.zeros([self.options.batch_size,3]).to(self.device),
             # the global rotation is incorrect as it is under the original 
             # coordinate system. The rest and betas are fine.
-            rot6d_to_axisAngle(input_batch['smplGT']['pose']).reshape(-1, 72),   # 24 * 6 = 144
-            input_batch['smplGT']['betas']],
+            rot6d_to_axisAngle(input_batch['GTsmplParas']['pose']).reshape(-1, 72),   # 24 * 6 = 144
+            input_batch['GTsmplParas']['betas']],
             dim = 1).float()
         
         # vertices in the original coordinates
         vertices = self.smpl(
-            pose = rot6d_to_axisAngle(input_batch['smplGT']['pose']).reshape(self.options.batch_size, 72),
-            beta = input_batch['smplGT']['betas'].float(),
-            trans = input_batch['smplGT']['trans']
+            pose = rot6d_to_axisAngle(input_batch['GTsmplParas']['pose']).reshape(self.options.batch_size, 72),
+            beta = input_batch['GTsmplParas']['betas'].float(),
+            trans = input_batch['GTsmplParas']['trans']
             )
         
-        # get joints in 3d and 2d in current camera coordiante
+        # get joints in 3d and 2d in the current camera coordiante
         joints_3d = self.smpl.get_joints(vertices.float())
-        joints_2d, _, joints_3d= self.perspCam(
-            fx = input_batch['cameraGT']['f_rot'][:,0,0], 
-            fy = input_batch['cameraGT']['f_rot'][:,0,0], 
+        joints_2d, _, joints_3d = self.perspCam(
+            fx = input_batch['GTcamera']['f_rot'][:,0,0], 
+            fy = input_batch['GTcamera']['f_rot'][:,0,0], 
             cx = 112, 
             cy = 112, 
-            rotation = rot6d_to_rotmat(input_batch['cameraGT']['f_rot'][:,0,1:]).float(),  
-            translation = input_batch['cameraGT']['t'][:,None,:].float(), 
+            rotation = rot6d_to_rotmat(input_batch['GTcamera']['f_rot'][:,0,1:]).float(),  
+            translation = input_batch['GTcamera']['t'][:,None,:].float(), 
             points = joints_3d,
             visibilityOn = False,
             output3d = True
             )
-        joints_3d = (joints_3d - input_batch['cameraGT']['t'][:,None,:]).float() # remove shifts
+        joints_3d = (joints_3d - input_batch['GTcamera']['t'][:,None,:]).float() # remove shifts
         
         # visind = 1
         # img = torch.zeros([224,224])
@@ -176,31 +174,24 @@ class trainer(BaseTrain):
         
         # convert vertices to current camera coordiantes
         _,_,vertices = self.perspCam(
-            fx = input_batch['cameraGT']['f_rot'][:,0,0], 
-            fy = input_batch['cameraGT']['f_rot'][:,0,0], 
+            fx = input_batch['GTcamera']['f_rot'][:,0,0], 
+            fy = input_batch['GTcamera']['f_rot'][:,0,0], 
             cx = 112, 
             cy = 112, 
-            rotation = rot6d_to_rotmat(input_batch['cameraGT']['f_rot'][:,0,1:]).float(),  
-            translation = input_batch['cameraGT']['t'][:,None,:].float(), 
+            rotation = rot6d_to_rotmat(input_batch['GTcamera']['f_rot'][:,0,1:]).float(),  
+            translation = input_batch['GTcamera']['t'][:,None,:].float(), 
             points = vertices,
             visibilityOn = False,
             output3d = True
             )
-        vertices = (vertices - input_batch['cameraGT']['t'][:,None,:]).float()
-        
-        # compute the displacements
-        bodyMesh = Meshes(verts = vertices, faces = self.faces)
-        bodyNorm = bodyMesh.verts_normals_packed().reshape(self.options.batch_size, -1, 3)
-        dispMag = input_batch['meshGT']['displacement'].norm(dim=2).unsqueeze(dim=2)
-        dispGT = dispMag*bodyNorm
-        dispGT = (dispGT-self.dispPara[0])/self.dispPara[1]/10
+        vertices = (vertices - input_batch['GTcamera']['t'][:,None,:]).float()
         
         # prove the correctness of coord sys 
         # points = (dispGT*self.dispPara[1]*10+self.dispPara[0]) + vertices
         # localcam = perspCamera(smpl_obj = False)    # disable additional trans
         # img_points, _ = localcam(
-        #     fx = input_batch['cameraGT']['f_rot'][:,0,0], 
-        #     fy = input_batch['cameraGT']['f_rot'][:,0,0], 
+        #     fx = input_batch['GTcamera']['f_rot'][:,0,0], 
+        #     fy = input_batch['GTcamera']['f_rot'][:,0,0], 
         #     cx = 112, 
         #     cy = 112, 
         #     rotation = torch.eye(3)[None].repeat_interleave(2, dim = 0).to('cuda'),  
@@ -228,8 +219,6 @@ class trainer(BaseTrain):
         # o3d.visualization.draw_geometries([o3dMesh])
     
         # self.renderer = renderer(batch_size = 1)
-        # if input_batch['isAug'][0]:
-        #     tex = input_batch['UVmapGT'].float()[0].flip(dims=(0,))
         # images = self.renderer(
         #     verts = vertices[0][None],
         #     faces = self.faces[0][None],
@@ -237,8 +226,8 @@ class trainer(BaseTrain):
         #     faces_uvs = self.smpl_tri_ind[None].repeat_interleave(2, dim=0)[0][None],
         #     tex_image = tex[None],
         #     R = torch.eye(3)[None].repeat_interleave(2, dim = 0).to('cuda')[0][None],
-        #     T = input_batch['cameraGT']['t'].float()[0][None],
-        #     f = input_batch['cameraGT']['f_rot'][:,0,0][:,None].float()[0][None],
+        #     T = input_batch['GTcamera']['t'].float()[0][None],
+        #     f = input_batch['GTcamera']['f_rot'][:,0,0][:,None].float()[0][None],
         #     C = torch.ones([2,2]).to('cuda')[0][None]*112,
         #     imgres = 224
         # )
@@ -246,10 +235,8 @@ class trainer(BaseTrain):
         GT = {'img' : input_batch['img'].float(),
               'img_orig': input_batch['img_orig'].float(),
               'imgname' : input_batch['imgname'],
-              'isAug': input_batch['isAug'],
               
-              'text': input_batch['meshGT']['texture'].float(),    # verts tex
-              'camera': input_batch['cameraGT'],                   # wcd 
+              'camera': input_batch['GTcamera'],                   # wcd 
               # 'indexMap': input_batch['indexMapGT'],
               'theta': smplGT.float(),        
               
@@ -257,11 +244,11 @@ class trainer(BaseTrain):
               'target_2d': joints_2d.float(),
               'target_3d': joints_3d.float(),
               'target_bvt': vertices.float(),   # body vertices
-              'target_dp': dispGT.float(),
+              'target_dp': input_batch['GToffsets_t']['offsets'].float(),    # smpl cd t-pose
               # 'target_dvt': (vertices + \
               #    (dispGT*self.dispPara[1]*10+self.dispPara[0])).float()    # vertices 
               
-              'target_uv': input_batch['UVmapGT'].float()
+              'target_uv': input_batch['GTtextureMap'].float()
               }
             
         return GT
@@ -394,9 +381,7 @@ class trainer(BaseTrain):
             [prediction['theta'][ind, 1],
              prediction['theta'][ind, 2],
              2 * 1000. / (224. * prediction['theta'][ind, 0] + 1e-9)], dim=-1)
-        tex = (prediction['tex_image'][ind][None], 
-               prediction['tex_image'][ind].flip(dims=(0,))[None])\
-              [data['isAug'][ind]]
+        tex = prediction['tex_image'][ind][None]
         pred_img = save_renderer(
             verts = prediction['verts'][ind][None],
             faces = self.faces[ind][None],
@@ -408,6 +393,7 @@ class trainer(BaseTrain):
             f = torch.ones([1,1]).to('cuda')*1000,
             C = torch.ones([1,2]).to('cuda')*112,
             imgres = 224)
+        
         overlayimg = 0.9*pred_img[0,:,:,:3] + 0.1*data['img'][ind].permute(1,2,0)
         save_path = pjn(folder,'overlay_%s_iters%d.png'%(data['imgname'][ind].split('/')[-1][:-4], self.step_count))
         plt.imsave(save_path, (overlayimg.clamp(0, 1)*255).cpu().numpy().astype('uint8'))

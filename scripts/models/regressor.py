@@ -137,6 +137,9 @@ class frameVIBE(nn.Module):
         textures = []
         device = rgbImage.device
         
+        # TexturePose does not provide its uwarping implementation so not sure
+        # if is dense mapping; Tex2shape is based on densepose and is sparse 
+        # mapping similar to ours.
         for cnt in range(rgbImage.shape[0]):
             uv = uvimage[cnt,:,:,:3]
             rgb = rgbImage[cnt].permute(1,2,0)
