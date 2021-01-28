@@ -318,6 +318,9 @@ class MGN_bodyAug_preparation(object):
             )
         
         for subInd, subPath in enumerate(self.path_subjects):
+            print("processing %d-th subject, %.2f%% accomlished."%
+                  (subInd, (subInd+1)*100/self.MGNSize_main))
+            
             ## <===== compute per-vertex offsets for each sub.
             ## read registered dressed body
             subObj  = Mesh(filename = pjn(subPath, 'smpl_registered.obj'))  

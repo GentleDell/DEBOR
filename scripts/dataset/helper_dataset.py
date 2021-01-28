@@ -270,7 +270,7 @@ def create_subject(subPath, coatPath, pantsPath, posePath, subBody_hres):
     if 'Multi-Garment_dataset' in posePath:
         pose_ID = posePath.split('/')[-1][-4:]
     elif 'MGN_dataset_02' in posePath:
-        pose_ID = posePath.split('/')[-2][-3:]
+        pose_ID = posePath.split('/')[-1][-3:]
     else:
         raise ValueError('please make sure the name of folder is correct')
     path = '_'.join([subPath, 'coat', coatID, 'pants', pantsID, 'pose', pose_ID])
