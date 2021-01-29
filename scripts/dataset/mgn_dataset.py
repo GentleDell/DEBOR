@@ -106,9 +106,9 @@ class BaseDataset(Dataset):
                     # i.e. [y, x, c]
                     boundbox = literal_eval(f.readline())
                     self.center.append( [(boundbox[0]+boundbox[2])/2, 
-                                         (boundbox[1]+boundbox[3])/2] )
+                                          (boundbox[1]+boundbox[3])/2] )
                     self.scale.append( max((boundbox[2]-boundbox[0])/200, 
-                                           (boundbox[3]-boundbox[1])/200) )
+                                            (boundbox[3]-boundbox[1])/200) )
                 
                 # read and covert camera parameters
                 with open( pjn( path_to_rendering,'camera%d_intrinsic_smpl_registered.txt'%(cameraIdx)) ) as f:
@@ -133,8 +133,10 @@ class BaseDataset(Dataset):
             # read normalize the ground truth offsets
             path_to_offsets = pjn(obj, 'gt_offsets')
             offsets_t = np.load( pjn(path_to_offsets, 'offsets_std.npy') )       # hres offsets is in offsets_hres.npy
-            offsets_tn = (offsets_t - self.dispPara[0])/self.dispPara[1]         # normalize offsets
+            offsets_tn = (offsets_t - self.dispPara[0])/(self.dispPara[1]+1e-8)         # normalize offsets
             self.GToffsets.append({'offsets': offsets_tn})
+            
+            verify the overall mean and std is correct
             
             # read smpl parameters 
             #     The 6D rotation representation is used here.

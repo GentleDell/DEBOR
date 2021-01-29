@@ -77,11 +77,9 @@ def convert_GT(options, input_batch, smpl, faces, perspCam, dispPara, device):
         )
     vertices = (vertices - input_batch['cameraGT']['t'][:,None,:]).float()
     
-    bodyMesh = Meshes(verts = vertices, faces = faces)
-    bodyNorm = bodyMesh.verts_normals_packed().reshape(options.batch_size, -1, 3)
-    dispMag = input_batch['meshGT']['displacement'].norm(dim=2).unsqueeze(dim=2)
-    dispGT = dispMag*bodyNorm
-    dispGT = (dispGT-dispPara[0])/dispPara[1]/10
+    check below
+    dispGT = input_batch['meshGT']['displacement'].norm(dim=2).unsqueeze(dim=2)
+    dispGT = (dispGT-dispPara[0])/dispPara[1]
     
     GT = {'img' : input_batch['img'].float(),
           'img_orig': input_batch['img_orig'].float(),
@@ -216,8 +214,8 @@ def evaluation_structure(pathCkp: str):
                         .norm(dim=2).view(-1,10).mean(dim=1).sum()
             
             # unnormalized the displacements
-            predDisp = pred[0]['verts_disp']*10*dispPara[1]+dispPara[0]
-            tarDisp  = GT['target_dp']*10*dispPara[1]+dispPara[0]
+            predDisp = pred[0]['verts_disp']*dispPara[1]+dispPara[0]
+            tarDisp  = GT['target_dp']*dispPara[1]+dispPara[0]
             mask = tarDisp.sum(dim=2) != 0
             for i in range(options.batch_size):
                 dispErr += (predDisp[i][mask[i]] - tarDisp[i][mask[i]]).norm(dim=1).mean()

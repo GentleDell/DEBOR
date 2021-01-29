@@ -59,7 +59,7 @@ def visbodyPrediction(img_in, prediction, options,
     smpl = SMPL(options.smpl_model_path, device)
     body = smpl(prediction['theta'][ind][3:75][None], prediction['theta'][ind][75:][None]).cpu()
     
-    disp = (prediction['verts_disp'][ind]*dispPara[1]*10+dispPara[0]).cpu()
+    disp = (prediction['verts_disp'][ind]*dispPara[1]+dispPara[0]).cpu()
     dressedbody = body + disp
         
     MeshPred = create_fullO3DMesh(body[ind], faces.cpu()[0])    

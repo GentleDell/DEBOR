@@ -11,8 +11,10 @@ if abspath('./') not in sys.path:
     sys.path.append(abspath('./'))
 if abspath('./third_party/smpl_webuser') not in sys.path:
     sys.path.append(abspath('./third_party/smpl_webuser'))
-if abspath('./third_party/pytorch-msssim') not in sys.path:
-    sys.path.append(abspath('./third_party/pytorch-msssim'))
+if abspath('./dataset') not in sys.path:
+    sys.path.append(abspath('./dataset'))
+if abspath('./dataset/MGN_helper') not in sys.path:
+    sys.path.append(abspath('./dataset/MGN_helper'))
 
 from tqdm import tqdm
 tqdm.monitor_interval = 0
@@ -23,8 +25,9 @@ import open3d as o3d
 
 from dataset import MGNDataset
 from utils import Mesh, BaseTrain, CheckpointDataLoader
-from utils.mesh_util import create_fullO3DMesh
+from utils.mesh_util import create_smplD_psbody
 from utils.vis_util import read_Obj
+from MGN_helper.lib.ch_smpl import Smpl
 from models import SMPL, frameVIBE, simple_renderer
 from models import camera as perspCamera
 from models.loss import VIBELoss
@@ -63,6 +66,9 @@ class trainer(BaseTrain):
         # self.smplEdge = torch.Tensor(np.load(self.options.smpl_edges_path)) \
         #                 .long().to(self.device)
         
+        # create SMPL+D blending model
+        self.smplD = Smpl( self.options.smpl_model_path ) 
+        
         # read SMPL .bj file to get uv coordinates
         _, self.smpl_tri_ind, uv_coord, tri_uv_ind = read_Obj(self.options.smpl_objfile_path)
         uv_coord[:, 1] = 1 - uv_coord[:, 1]
@@ -76,7 +82,7 @@ class trainer(BaseTrain):
 
         # mean and std of displacements
         self.dispPara = \
-            torch.Tensor(np.load(self.options.MGN_offsMeanStd_path)).to(self.device)
+            torch.Tensor(np.load(self.options.MGN_dispMeanStd_path)).to(self.device)
         
         # load average pose and shape and convert to camera coodinate;
         # avg pose is decided by the image id we use for training (0-11) 
@@ -243,7 +249,7 @@ class trainer(BaseTrain):
               'target_2d': joints_2d.float(),
               'target_3d': joints_3d.float(),
               'target_bvt': vertices.float(),   # body vertices
-              'target_dp': input_batch['GToffsets_t']['offsets'].float(),    # smpl cd t-pose 
+              'target_dp': input_batch['GToffsets_t']['offsets'].float(),    # smpl cd t-pose
               
               'target_uv': input_batch['GTtextureMap'].float()
               }
@@ -255,6 +261,7 @@ class trainer(BaseTrain):
         self.model.train()
         
         # prepare data
+        verify GT and test
         GT = self.convert_GT(input_batch)
         
         # forward pass
@@ -401,32 +408,20 @@ class trainer(BaseTrain):
         save_path = pjn(folder,'predtex_%s_iters%d.png'%(data['imgname'][ind].split('/')[-1][:-4], self.step_count))
         plt.imsave(save_path, (prediction['tex_image'][ind].clamp(0, 1)*255).cpu().numpy().astype('uint8'))
         
-        # save body pose if available
-        bodyList = {}
         
-        # create GT undressed body vetirces. Do not use orignal beta and rot
-        # since the global orientation is incorrect
-        bodyList['bodyGT'] = data['target_bvt'].cpu()
-        
-        # create predicted undressed body vetirces
-        bodyList['bodyPred'] = self.smpl(
-            prediction['theta'][ind][3:75][None],
-            prediction['theta'][ind][75:][None]).cpu()
-        
-        # consider cloth
-        target_dp = (data['target_dp'][ind]*self.dispPara[1]+self.dispPara[0]).cpu()[None,:] 
-        predict_dp = (prediction['verts_disp'][ind]*self.dispPara[1]+self.dispPara[0]).cpu()[None,:] 
-        
-        bodyList['bodyGT_GTCloth'] = bodyList['bodyGT'] + target_dp  
-        bodyList['bodyGT_PredCloth'] = bodyList['bodyGT'] + predict_dp         
-        bodyList['bodyPred_PredCloth']= bodyList['bodyPred'] + predict_dp
+        # create predicted posed undressed body vetirces       
+        offPred_t  = (prediction['verts_disp'][ind]*self.dispPara[1]+self.dispPara[0]).cpu()[None,:] 
+        predDressbody = create_smplD_psbody(
+            self.smplD, offPred_t, 
+            prediction['theta'][ind][3:75][None], 
+            prediction['theta'][ind][75:][None].cpu(), 
+            0, 
+            rtnMesh=True)[1]
                             
-        # Create meshes and save them
-        for key, val in bodyList.items():
-            Meshbody = create_fullO3DMesh(val[0], self.faces.cpu()[0])    
-            savepath = pjn(folder,'%s_iters%d__%s.obj'%\
-                    (data['imgname'][ind].split('/')[-1][:-4], self.step_count, key))
-            o3d.io.write_triangle_mesh(savepath, Meshbody)
+        # Create meshes and save 
+        savepath = pjn(folder,'%s_iters%d.obj'%\
+                       (data['imgname'][ind].split('/')[-1][:-4], self.step_count))
+        predDressbody.write_obj(savepath)
 
 
 if __name__ == '__main__':
