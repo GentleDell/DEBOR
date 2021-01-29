@@ -265,7 +265,7 @@ def create_subject(subPath, coatPath, pantsPath, posePath, subBody_hres):
     """manage the files of the augmented/new subject."""
     
     ## prepare path
-    coatID  = coatPath.split('/')[-2][-3:]
+    coatID  = coatPath.split('/')[-2][-3:] if coatPath is not None else 'none'
     pantsID = pantsPath.split('/')[-2][-3:]
     if 'Multi-Garment_dataset' in posePath:
         pose_ID = posePath.split('/')[-1][-4:]
@@ -282,8 +282,10 @@ def create_subject(subPath, coatPath, pantsPath, posePath, subBody_hres):
     copyfile(pjn(subPath, 'registered_tex.jpg'), pjn(path, 'registered_tex.jpg'))
     copyfile(pjn(subPath, 'segmentation.png'), pjn(path, 'segmentation.png'))
     
-    coat_name = coatPath.split('/')[-1]
-    copyfile(coatPath, pjn(path, coat_name))
+    if coatPath is not None:    # for the 83rd subject
+        coat_name = coatPath.split('/')[-1]
+        copyfile(coatPath, pjn(path, coat_name))
+
     pants_name= pantsPath.split('/')[-1]
     copyfile(pantsPath, pjn(path, pants_name))
     

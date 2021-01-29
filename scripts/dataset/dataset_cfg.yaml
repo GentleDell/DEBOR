@@ -28,6 +28,7 @@ light_horiz_distance: [4]        # horizontal distance of the lights
 
 # mesh displacements settings
 enable_offsets: True             # enable GT displacements computation 
+start_from_ind: 0                # where to start the augmentation (for resuming the augmentation)
 show_intermediateMeshes: False   # show all intermediate results/meshs
 save_displacements: True
 

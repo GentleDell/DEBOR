@@ -158,6 +158,7 @@ class MGN_bodyAug_preparation(object):
         
         ## <==== get configurations for post processing
         self.verbose_on = cfg['show_intermediateMeshes']
+        self.ind_start  = cfg['start_from_ind']
         self.save_offsets = cfg['save_displacements']
         self.num_separation = {'hres': cfg['number_separation_hres'],
                                'std' : cfg['number_separation_std' ]}
@@ -184,7 +185,7 @@ class MGN_bodyAug_preparation(object):
         subInd : int
             The index to the original subject.
         each_Nsuit : int
-            The number of suits to generate new subjects.
+            The number of suits to dress each new subject.
         poseInd : int
             The index to the pose to generate new subjects.
 
@@ -209,7 +210,7 @@ class MGN_bodyAug_preparation(object):
             # if a subject does not have coats, from what we observe, it 
             # probably wears a tshir, except for the 83rd which is naked.
             if subInd == 83:
-                coatPath = None    # naked
+                coatPath = [None]*each_Nsuit    # naked
             else:
                 coatInd  = np.random.randint(len(self.wardrobe['TShirtNoCoat']), size = each_Nsuit).tolist()
                 coatPath = [pjn(self.wardrobe['TShirtNoCoat'][ind], 'TShirtNoCoat.obj') for ind in coatInd]
@@ -317,7 +318,7 @@ class MGN_bodyAug_preparation(object):
             p=np.hstack([p_MGN, p_wdb])
             )
         
-        for subInd, subPath in enumerate(self.path_subjects):
+        for subInd, subPath in enumerate(self.path_subjects[self.ind_start:], start=self.ind_start):
             print("processing %d-th subject, %.2f%% accomlished."%
                   (subInd, (subInd+1)*100/self.MGNSize_main))
             
