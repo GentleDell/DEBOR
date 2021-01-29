@@ -76,7 +76,7 @@ class trainer(BaseTrain):
 
         # mean and std of displacements
         self.dispPara = \
-            torch.Tensor(np.load(self.options.MGN_dispMeanStd_path)).to(self.device)
+            torch.Tensor(np.load(self.options.MGN_offsMeanStd_path)).to(self.device)
         
         # load average pose and shape and convert to camera coodinate;
         # avg pose is decided by the image id we use for training (0-11) 
@@ -187,7 +187,7 @@ class trainer(BaseTrain):
         vertices = (vertices - input_batch['GTcamera']['t'][:,None,:]).float()
         
         # prove the correctness of coord sys 
-        # points = (dispGT*self.dispPara[1]*10+self.dispPara[0]) + vertices
+        # points = (dispGT*self.dispPara[1]+self.dispPara[0]) + vertices
         # localcam = perspCamera(smpl_obj = False)    # disable additional trans
         # img_points, _ = localcam(
         #     fx = input_batch['GTcamera']['f_rot'][:,0,0], 
@@ -208,7 +208,7 @@ class trainer(BaseTrain):
                 
         # prove the correctness of displacements
         # import open3d as o3d
-        # points = (dispGT3d*dispPara[1]*10+dispPara[0]) + vertices
+        # points = (dispGT3d*dispPara[1]+dispPara[0]) + vertices
         # ind = 0
         # diff = (dispGT[ind] - dispGT3d[ind]).cpu()
         # o3dMesh = o3d.geometry.TriangleMesh()
@@ -237,16 +237,13 @@ class trainer(BaseTrain):
               'imgname' : input_batch['imgname'],
               
               'camera': input_batch['GTcamera'],                   # wcd 
-              # 'indexMap': input_batch['indexMapGT'],
               'theta': smplGT.float(),        
               
               # joints_2d is col, row == x, y; joints_3d is x,y,z
               'target_2d': joints_2d.float(),
               'target_3d': joints_3d.float(),
               'target_bvt': vertices.float(),   # body vertices
-              'target_dp': input_batch['GToffsets_t']['offsets'].float(),    # smpl cd t-pose
-              # 'target_dvt': (vertices + \
-              #    (dispGT*self.dispPara[1]*10+self.dispPara[0])).float()    # vertices 
+              'target_dp': input_batch['GToffsets_t']['offsets'].float(),    # smpl cd t-pose 
               
               'target_uv': input_batch['GTtextureMap'].float()
               }
@@ -417,8 +414,8 @@ class trainer(BaseTrain):
             prediction['theta'][ind][75:][None]).cpu()
         
         # consider cloth
-        target_dp = (data['target_dp'][ind]*self.dispPara[1]*10+self.dispPara[0]).cpu()[None,:] 
-        predict_dp = (prediction['verts_disp'][ind]*self.dispPara[1]*10+self.dispPara[0]).cpu()[None,:] 
+        target_dp = (data['target_dp'][ind]*self.dispPara[1]+self.dispPara[0]).cpu()[None,:] 
+        predict_dp = (prediction['verts_disp'][ind]*self.dispPara[1]+self.dispPara[0]).cpu()[None,:] 
         
         bodyList['bodyGT_GTCloth'] = bodyList['bodyGT'] + target_dp  
         bodyList['bodyGT_PredCloth'] = bodyList['bodyGT'] + predict_dp         

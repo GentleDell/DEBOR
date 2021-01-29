@@ -74,6 +74,9 @@ class BaseDataset(Dataset):
         else:
             self.bgimages = None
         
+        # per-vertex mean and std of the offsets in training set 
+        self.dispPara = np.load(self.options.MGN_offsMeanStd_path)
+        
         # load datatest
         self.objname, self.imgname, self.center, self.scale = [], [], [], []
         self.camera, self.lights = [], []      
@@ -127,14 +130,11 @@ class BaseDataset(Dataset):
                     lightSettings = literal_eval(f.readline())
                     self.lights.append(lightSettings)           
                     
-            # read ground truth displacements and texture vector
+            # read normalize the ground truth offsets
             path_to_offsets = pjn(obj, 'gt_offsets')
-            offsets = np.load( pjn(path_to_offsets, 'offsets_std.npy') )       # hres offsets is in offsets_hres.npy
-            
-            # create the full dataset;
-            # normalize the offsets here!
-            
-            self.GToffsets.append({'offsets': offsets})
+            offsets_t = np.load( pjn(path_to_offsets, 'offsets_std.npy') )       # hres offsets is in offsets_hres.npy
+            offsets_tn = (offsets_t - self.dispPara[0])/self.dispPara[1]         # normalize offsets
+            self.GToffsets.append({'offsets': offsets_tn})
             
             # read smpl parameters 
             #     The 6D rotation representation is used here.
@@ -176,100 +176,7 @@ class BaseDataset(Dataset):
         
         # self.getIndicesMap(1994, camera = None)
         # self.__getitem__(10)
-              
-    # def indicesToCode(self, indices):
-    #     '''
-    #     It converts the given indices value to the corresponding codes.
 
-    #     Parameters
-    #     ----------
-    #     indices : tensor
-    #         Indices of vertices
-
-    #     Returns
-    #     -------
-    #     Codes
-
-    #     '''
-    #     major = indices//689
-    #     minor = (indices - major*689)//53
-    #     order = indices - major*689 - minor*53
-        
-    #     return torch.stack([major/10, minor/13, order/53]).T
-        
-    # def getIndicesMap(self, index, camera):
-    #     '''
-    #     This function creates the indices map of the image specified by the 
-    #     index. The projection is decided by the given camera.
-
-    #     Parameters
-    #     ----------
-    #     index : int
-    #         The index of the target image.
-    #     camera : dict
-    #         Camera model for projection.
-
-    #     Returns
-    #     -------
-    #     indexMap
-
-    #     '''
-    #     SMPLparams = self.GTsmplParas[index//self.options.img_per_object]
-    #     jointsPose = rot6d_to_axisAngle(SMPLparams['pose']).flatten().float()
-        
-    #     # load SMPL parameters and model; transform vertices and joints.
-    #     # tried the official imp, the same as the one we use
-    #     SMPLvert_posed, joints = generateSMPLmesh(
-    #             self.options.smpl_model_path, jointsPose, SMPLparams['betas'], 
-    #             SMPLparams['trans'], asTensor=True)
-        
-    #     # read displacements
-    #     disp = torch.Tensor(
-    #         self.GToffsets[ index//self.options.img_per_object ]['displacement'])
-        
-    #     # # debug
-    #     # flip,pn,rot,sc = self.augm_params()
-    #     # center = self.center[index]
-    #     # scale = self.scale[index]
-    #     # imgname = self.imgname[index]
-    #     # img = cv2.imread(imgname)[:,:,::-1].copy().astype(np.float32)
-    #     # img = self.rgb_processing(img, center, sc*scale, rot, flip, pn)
-    #     # img = torch.from_numpy(img).float()
-    #     # camera = self.camera_trans(
-    #     #     img, center, sc*scale, rot, flip, self.camera[index], self.options)
-    #     # indexMap = img.permute(1,2,0).numpy()
-        
-    #     # project the GT vertice to the image plane to get the coordinates
-    #     # of the projected pixels and visibility.
-    #     pixels, visibility = self.cameraObj(
-    #         fx=torch.tensor(camera['intrinsic'][0,0])[None,None,None], 
-    #         fy=torch.tensor(camera['intrinsic'][1,1])[None,None,None], 
-    #         cx=torch.tensor(camera['intrinsic'][0,2])[None,None,None], 
-    #         cy=torch.tensor(camera['intrinsic'][1,2])[None,None,None], 
-    #         rotation=torch.tensor(camera['extrinsic'][:,:3])[None].float(),
-    #         translation=torch.tensor(camera['extrinsic'][:,-1])[None].float(), 
-    #         points=(SMPLvert_posed + disp)[None], 
-    #         faces=torch.tensor(self.smplMesh).int()[None], 
-    #         visibilityOn = True)
-        
-    #     # convert data type and remove pixels out of the image boundary.
-    #     pixels = pixels[0].round()
-    #     keptPixs =  (pixels[:,0]<224)*(pixels[:,0]>=0)\
-    #                *(pixels[:,1]<224)*(pixels[:,1]>=0)
-    #     pixels = pixels[keptPixs]
-        
-    #     # remove invisible vertices/pixels
-    #     batchId, indices = torch.where(visibility)
-    #     indices = indices[keptPixs]
-        
-    #     # create GT indexMap
-    #     indexMap = torch.zeros(
-    #         [self.options.img_res, self.options.img_res, 3])
-    #     indexMap[pixels[:,1].long(), pixels[:,0].long()] = \
-    #         self.indicesToCode(indices)
-            
-    #     return indexMap
-        
     def augm_params(self):
         """Get augmentation parameters."""
         flip = 0            # flipping
