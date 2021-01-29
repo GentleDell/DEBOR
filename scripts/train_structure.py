@@ -82,7 +82,7 @@ class trainer(BaseTrain):
 
         # mean and std of displacements
         self.dispPara = \
-            torch.Tensor(np.load(self.options.MGN_dispMeanStd_path)).to(self.device)
+            torch.Tensor(np.load(self.options.MGN_offsMeanStd_path)).to(self.device)
         
         # load average pose and shape and convert to camera coodinate;
         # avg pose is decided by the image id we use for training (0-11) 
@@ -192,17 +192,17 @@ class trainer(BaseTrain):
             )
         vertices = (vertices - input_batch['GTcamera']['t'][:,None,:]).float()
         
-        # prove the correctness of coord sys 
-        # points = (dispGT*self.dispPara[1]+self.dispPara[0]) + vertices
+        # prove the correctness of coord sys,
+        # points = vertices (vertices before shift)
         # localcam = perspCamera(smpl_obj = False)    # disable additional trans
         # img_points, _ = localcam(
         #     fx = input_batch['GTcamera']['f_rot'][:,0,0], 
         #     fy = input_batch['GTcamera']['f_rot'][:,0,0], 
         #     cx = 112, 
         #     cy = 112, 
-        #     rotation = torch.eye(3)[None].repeat_interleave(2, dim = 0).to('cuda'),  
-        #     translation = torch.zeros([2,1,3]).to('cuda'), 
-        #     points = points,
+        #     rotation = torch.eye(3)[None].repeat_interleave(points.shape[0], dim = 0).to('cuda'),  
+        #     translation = torch.zeros([points.shape[0],1,3]).to('cuda'), 
+        #     points = points.float(),
         #     visibilityOn = False,
         #     output3d = False
         #     )
@@ -214,13 +214,11 @@ class trainer(BaseTrain):
                 
         # prove the correctness of displacements
         # import open3d as o3d
-        # points = (dispGT3d*dispPara[1]+dispPara[0]) + vertices
+        # points = vertices
         # ind = 0
-        # diff = (dispGT[ind] - dispGT3d[ind]).cpu()
         # o3dMesh = o3d.geometry.TriangleMesh()
         # o3dMesh.vertices = o3d.utility.Vector3dVector(points[ind].cpu())
-        # o3dMesh.triangles= o3d.utility.Vector3iVector(faces[ind].cpu())
-        # o3dMesh.vertex_colors = o3d.utility.Vector3dVector((diff/0.01).clamp(max=1))
+        # o3dMesh.triangles= o3d.utility.Vector3iVector(self.faces[0].cpu())
         # o3dMesh.compute_vertex_normals()     
         # o3d.visualization.draw_geometries([o3dMesh])
     
@@ -261,9 +259,8 @@ class trainer(BaseTrain):
         self.model.train()
         
         # prepare data
-        verify GT and test
-        GT = self.convert_GT(input_batch)
-        
+        GT = self.convert_GT(input_batch)    
+  
         # forward pass
         pred = self.model(GT['img'], GT['img_orig'])
         
@@ -407,13 +404,13 @@ class trainer(BaseTrain):
         plt.imsave(save_path, (prediction['unwarp_tex'][ind].clamp(0, 1)*255).cpu().numpy().astype('uint8'))
         save_path = pjn(folder,'predtex_%s_iters%d.png'%(data['imgname'][ind].split('/')[-1][:-4], self.step_count))
         plt.imsave(save_path, (prediction['tex_image'][ind].clamp(0, 1)*255).cpu().numpy().astype('uint8'))
-        
-        
+
+
         # create predicted posed undressed body vetirces       
         offPred_t  = (prediction['verts_disp'][ind]*self.dispPara[1]+self.dispPara[0]).cpu()[None,:] 
         predDressbody = create_smplD_psbody(
             self.smplD, offPred_t, 
-            prediction['theta'][ind][3:75][None], 
+            prediction['theta'][ind][3:75][None].cpu(), 
             prediction['theta'][ind][75:][None].cpu(), 
             0, 
             rtnMesh=True)[1]

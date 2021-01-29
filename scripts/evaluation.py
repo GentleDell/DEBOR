@@ -20,7 +20,6 @@ import torch
 from tqdm import tqdm
 import numpy as np
 
-from pytorch3d.structures import Meshes
 from utils.vis_util import read_Obj
 from utils import Mesh, CheckpointSaver, CheckpointDataLoader
 from dataset import MGNDataset
@@ -32,32 +31,35 @@ from models.geometric_layers import rotationMatrix_to_axisAngle, rot6d_to_rotmat
 def convert_GT(options, input_batch, smpl, faces, perspCam, dispPara, device):     
     
     smplGT = torch.cat([
+        # GTcamera is not used, here is a placeholder
         torch.zeros([options.batch_size,3]).to(device),
-        rot6d_to_axisAngle(input_batch['smplGT']['pose']).reshape(-1, 72), 
-        input_batch['smplGT']['betas']],
+        # the global rotation is incorrect as it is under the original 
+        # coordinate system. The rest and betas are fine.
+        rot6d_to_axisAngle(input_batch['GTsmplParas']['pose']).reshape(-1, 72),   # 24 * 6 = 144
+        input_batch['GTsmplParas']['betas']],
         dim = 1).float()
     
     # vertices in the original coordinates
     vertices = smpl(
-        pose = rot6d_to_axisAngle(input_batch['smplGT']['pose']).reshape(options.batch_size, 72),
-        beta = input_batch['smplGT']['betas'].float(),
-        trans = input_batch['smplGT']['trans']
+        pose = rot6d_to_axisAngle(input_batch['GTsmplParas']['pose']).reshape(options.batch_size, 72),
+        beta = input_batch['GTsmplParas']['betas'].float(),
+        trans = input_batch['GTsmplParas']['trans']
         )
     
-    # get joints in 3d and 2d in current camera coordiante
+    # get joints in 3d and 2d in the current camera coordiante
     joints_3d = smpl.get_joints(vertices.float())
-    joints_2d, _, joints_3d= perspCam(
-        fx = input_batch['cameraGT']['f_rot'][:,0,0], 
-        fy = input_batch['cameraGT']['f_rot'][:,0,0], 
+    joints_2d, _, joints_3d = perspCam(
+        fx = input_batch['GTcamera']['f_rot'][:,0,0], 
+        fy = input_batch['GTcamera']['f_rot'][:,0,0], 
         cx = 112, 
         cy = 112, 
-        rotation = rot6d_to_rotmat(input_batch['cameraGT']['f_rot'][:,0,1:]).float(),  
-        translation = input_batch['cameraGT']['t'][:,None,:].float(), 
+        rotation = rot6d_to_rotmat(input_batch['GTcamera']['f_rot'][:,0,1:]).float(),  
+        translation = input_batch['GTcamera']['t'][:,None,:].float(), 
         points = joints_3d,
         visibilityOn = False,
         output3d = True
         )
-    joints_3d = (joints_3d - input_batch['cameraGT']['t'][:,None,:]).float() 
+    joints_3d = (joints_3d - input_batch['GTcamera']['t'][:,None,:]).float() # remove shifts
     
     # convert to [-1, +1]
     joints_2d = (torch.cat(joints_2d, dim=0).reshape([options.batch_size, 24, 2]) - 112)/112
@@ -65,35 +67,30 @@ def convert_GT(options, input_batch, smpl, faces, perspCam, dispPara, device):
     
     # convert vertices to current camera coordiantes
     _,_,vertices = perspCam(
-        fx = input_batch['cameraGT']['f_rot'][:,0,0], 
-        fy = input_batch['cameraGT']['f_rot'][:,0,0], 
+        fx = input_batch['GTcamera']['f_rot'][:,0,0], 
+        fy = input_batch['GTcamera']['f_rot'][:,0,0], 
         cx = 112, 
         cy = 112, 
-        rotation = rot6d_to_rotmat(input_batch['cameraGT']['f_rot'][:,0,1:]).float(),  
-        translation = input_batch['cameraGT']['t'][:,None,:].float(), 
+        rotation = rot6d_to_rotmat(input_batch['GTcamera']['f_rot'][:,0,1:]).float(),  
+        translation = input_batch['GTcamera']['t'][:,None,:].float(), 
         points = vertices,
         visibilityOn = False,
         output3d = True
         )
-    vertices = (vertices - input_batch['cameraGT']['t'][:,None,:]).float()
-    
-    check below
-    dispGT = input_batch['meshGT']['displacement'].norm(dim=2).unsqueeze(dim=2)
-    dispGT = (dispGT-dispPara[0])/dispPara[1]
+    vertices = (vertices - input_batch['GTcamera']['t'][:,None,:]).float()
     
     GT = {'img' : input_batch['img'].float(),
           'img_orig': input_batch['img_orig'].float(),
           'imgname' : input_batch['imgname'],
-          'isAug': input_batch['isAug'],
-          'text': input_batch['meshGT']['texture'].float(),    # verts tex
-          'camera': input_batch['cameraGT'],                   # wcd 
-          # 'indexMap': input_batch['indexMapGT'],
+          'camera': input_batch['GTcamera'],                   # wcd 
           'theta': smplGT.float(),        
+          
+          # joints_2d is col, row == x, y; joints_3d is x,y,z
           'target_2d': joints_2d.float(),
           'target_3d': joints_3d.float(),
           'target_bvt': vertices.float(),   # body vertices
-          'target_dp': dispGT.float(),
-          'target_uv': input_batch['UVmapGT'].float()
+          'target_dp': input_batch['GToffsets_t']['offsets'].float(),    # smpl cd t-pose
+          'target_uv': input_batch['GTtextureMap'].float()
           }
         
     return GT  

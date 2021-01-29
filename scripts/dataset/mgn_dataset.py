@@ -130,13 +130,11 @@ class BaseDataset(Dataset):
                     lightSettings = literal_eval(f.readline())
                     self.lights.append(lightSettings)           
                     
-            # read normalize the ground truth offsets
+            # read and normalize the ground truth offsets
             path_to_offsets = pjn(obj, 'gt_offsets')
             offsets_t = np.load( pjn(path_to_offsets, 'offsets_std.npy') )       # hres offsets is in offsets_hres.npy
-            offsets_tn = (offsets_t - self.dispPara[0])/(self.dispPara[1]+1e-8)         # normalize offsets
+            offsets_tn = (offsets_t - self.dispPara[0])/(self.dispPara[1]+1e-8)  # normalize offsets
             self.GToffsets.append({'offsets': offsets_tn})
-            
-            verify the overall mean and std is correct
             
             # read smpl parameters 
             #     The 6D rotation representation is used here.
@@ -155,7 +153,6 @@ class BaseDataset(Dataset):
             UV_textureMap = cv2.resize(UV_textureMap, (self.options.img_res, self.options.img_res), cv2.INTER_CUBIC)
             self.GTtextureMap.append(UV_textureMap)
             
-        # TODO: change the mean and std to our case
         IMG_NORM_MEAN = [0.485, 0.456, 0.406]
         IMG_NORM_STD = [0.229, 0.224, 0.225]
         self.normalize_img = Normalize(mean=IMG_NORM_MEAN, std=IMG_NORM_STD)       
@@ -176,7 +173,6 @@ class BaseDataset(Dataset):
         # img = background_replacing(img, bgimg)
         # plt.imshow(img/255)
         
-        # self.getIndicesMap(1994, camera = None)
         # self.__getitem__(10)
 
     def augm_params(self):

@@ -59,7 +59,7 @@ class TrainOptions(object):
         train.add_argument('--batch_size', type=int, default=4, help='Batch size')
         train.add_argument('--summary_steps', type=int, default=256, help='Summary saving frequency')
         train.add_argument('--checkpoint_steps', type=int, default=5000, help='Checkpoint saving frequency')
-        train.add_argument('--test_steps', type=int, default=1000, help='Testing frequency')
+        train.add_argument('--test_steps', type=int, default=2, help='Testing frequency')
         train.add_argument('--num_downsampling', type=int, default=0, help='number of times downsampling the smpl mesh') 
         train.add_argument('--rot_factor', type=float, default=30, help='Random rotation in the range [-rot_factor, rot_factor]') 
         train.add_argument('--noise_factor', type=float, default=0.4, help='Random rotation in the range [-rot_factor, rot_factor]') 
