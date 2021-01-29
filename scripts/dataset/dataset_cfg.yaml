@@ -6,10 +6,10 @@ cachePath: "./"
 requireConfirm: True            # require confirmation before executing 
 smplModel: "../../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl"
 smplMesh_std: "../../body_model/text_uv_coor_smpl.obj"
-blenderPath: "../../../../../Tools/blender-2.91.0-linux64/blender"
+blenderPath: "../../../../Tools/blender-2.91.0-linux64/blender"
 
 # MGN dataset paths
-datarootMGN: "../../datasets/Multi-Garment_dataset"
+datarootMGN: "../../datasets/Multi-Garmentdataset/Multi-Garment_dataset"
 wardrobeMGN: "../../datasets/MGN_dataset_02"
 path_downMat: '../../body_model/downConvMat_MGN_sparse.npz'
 
@@ -32,6 +32,8 @@ start_from_ind: 0                # where to start the augmentation (for resuming
 show_intermediateMeshes: False   # show all intermediate results/meshs
 save_displacements: True
 
+number_augment_poses: 2          # the number of augmented poses for each subject, >= 0
+number_augment_garments: 2       # the number of augmented suits for each subject, >= 0
 number_separation_hres: 23       # separate point cloud to reduce memory usage
 number_separation_std: 5         # separate point cloud to reduce memory usage
 max_offsets: [0.15, 0.075]       # the maximum acceptable displacement for coats and pants, [meter]

@@ -159,6 +159,8 @@ class MGN_bodyAug_preparation(object):
         ## <==== get configurations for post processing
         self.verbose_on = cfg['show_intermediateMeshes']
         self.ind_start  = cfg['start_from_ind']
+        self.numAugPose = cfg['number_augment_poses']
+        self.numAugSuit = cfg['number_augment_garments']
         self.save_offsets = cfg['save_displacements']
         self.num_separation = {'hres': cfg['number_separation_hres'],
                                'std' : cfg['number_separation_std' ]}
@@ -302,20 +304,28 @@ class MGN_bodyAug_preparation(object):
         
         return offsets_t    
                       
-    def generateDataset(self, keepN_pose = 30, each_Npose = 2, each_Nsuit = 2):
+    def generateDataset(self, each_Npose = None, each_Nsuit = None):
         """main function to generate the enriched dataset."""
         
-        ## choose additional poses for all subjects in MGN
-        # here we choose the probability p such that the expected appearing 
-        # times of all poses (196 in total) to be equal (Att: poses in MGN main 
-        # appear at least once).
-        p = (0.96*each_Npose-1)/1.96/each_Npose    
-        p_MGN = p/self.MGNSize_main*np.ones((self.MGNSize_main,))
-        p_wdb = (1-p)/(self.MGNSize_wardrobe)*np.ones((self.MGNSize_wardrobe,))
+        each_Npose = self.numAugPose if each_Npose is None else each_Npose
+        each_Nsuit = self.numAugSuit if each_Nsuit is None else each_Nsuit
+        
+        if each_Npose*each_Nsuit > 0:
+            ## choose additional poses for all subjects in MGN
+            # here we choose the probability p such that the expected appearing 
+            # times of all poses (196 in total) to be equal (Att: poses in MGN main 
+            # appear at least once).
+            p = (0.96*each_Npose*each_Nsuit-1)/1.96/each_Npose/each_Nsuit    
+            p_MGN = p/self.MGNSize_main*np.ones((self.MGNSize_main,))
+            p_wdb = (1-p)/(self.MGNSize_wardrobe)*np.ones((self.MGNSize_wardrobe,))
+            p_all = np.hstack([p_MGN, p_wdb])
+        else:
+            p_all = 1/len(self.poses)*np.ones((len(self.poses),))
+            
         augPoseInd = np.random.choice(
             np.arange(len(self.poses)), 
             size=(len(self.path_subjects), each_Npose),
-            p=np.hstack([p_MGN, p_wdb])
+            p=p_all
             )
         
         for subInd, subPath in enumerate(self.path_subjects[self.ind_start:], start=self.ind_start):
