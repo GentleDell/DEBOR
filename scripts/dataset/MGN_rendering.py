@@ -21,7 +21,7 @@ import yaml
 import numpy as np
 import matplotlib.pyplot as plt
 from utils.render_util import light, camera, getMaterialPath
-from utils.mesh_util import read_Obj
+from utils.vis_util import read_Obj
 # import torch
 # import models.camera as cameraPers
 

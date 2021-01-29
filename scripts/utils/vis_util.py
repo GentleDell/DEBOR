@@ -11,17 +11,19 @@ import sys
 if abspath('../') not in sys.path:
     sys.path.append(abspath('../'))
     sys.path.append(abspath('../third_party/smpl_webuser'))
+    sys.path.append(abspath('../dataset'))
+    sys.path.append(abspath('../dataset/MGN_helper'))
 
-import open3d as o3d
-import chumpy as ch
 import numpy as np
 from numpy import array
-from torch import Tensor
-from scipy import interpolate
 
-from third_party.smpl_webuser.serialization import load_model
-from third_party.smpl_webuser.lbs import verts_core as _verts_core 
-
+from psbody.mesh import Mesh, MeshViewers
+from MGN_helper.utils.smpl_paths import SmplPaths
+from MGN_helper.lib.ch_smpl import Smpl
+if __name__ == "__main__":
+    from mesh_util import create_smplD_psbody
+else:
+    from .mesh_util import create_smplD_psbody
 
 
 def read_Obj(path):
@@ -68,8 +70,8 @@ def read_Obj(path):
     return vertices, tri_list_vertex, texture_uv_coor, tri_list_uv
 
 
-def visDisplacement(path_object: str, path_SMPLmodel: str, visMesh: bool,
-                    meshDistance: float = 0.5, save: bool = True ):
+def vis_subjectFromPath(path_object: str, path_SMPLmodel: str, 
+                        path_bodyMesh: str, is_hres = False):
     '''
     This function visualize object file in the given path.
 
@@ -79,12 +81,6 @@ def visDisplacement(path_object: str, path_SMPLmodel: str, visMesh: bool,
         Path to the folder constaining the object.
     path_SMPLmodel : str
         Path to the SMPL model .pkl file.
-    meshDistance : float, optional
-        The distance between meshes. 
-        The default is 0.5.
-    save : bool, optional
-        Whether to save the SMPL+displacements as obj file. 
-        The default is True.
 
     Returns
     -------
@@ -93,157 +89,72 @@ def visDisplacement(path_object: str, path_SMPLmodel: str, visMesh: bool,
     '''
     assert isfile(path_SMPLmodel), 'SMPL model not found.'
     assert isdir(path_object), 'the path to object folder is invalid.'
+    assert isfile(path_bodyMesh) , 'reference mesh not found.'
+    assert ('smpl_registered' in path_bodyMesh) == is_hres, \
+        'reference mesh has different resolution from that specified by is_hres.'
     
-    # read registered mesh
-    objfile = pjn(path_object, 'smpl_registered.obj')
-    body_vertices, body_mesh, _, _ = read_Obj(objfile)
+    dp = SmplPaths()
+    SMPL = Smpl( dp.get_hres_smpl_model_data() if is_hres else dp.get_smpl_file() )
     
-    # read SMPL model
+    # read pose
     regfile = pjn(path_object, 'registration.pkl')    # smpl model params
     smplpara = pickle.load(open(regfile, 'rb'),  encoding='iso-8859-1')
-    SMPLmodel = load_model(path_SMPLmodel)
-    SMPLmodel.pose[:]  = smplpara['pose']
-    SMPLmodel.betas[:] = smplpara['betas']
-    [SMPLvert, Jtr] = _verts_core(SMPLmodel.pose, SMPLmodel.v_posed, SMPLmodel.J,  \
-                                  SMPLmodel.weights, SMPLmodel.kintree_table, want_Jtr=True, xp=ch)
-    Jtr = Jtr + smplpara['trans']
-    SMPLvert = np.array(SMPLvert) + smplpara['trans'] + np.array([meshDistance, 0, 0])
+    
+    # read offsets
+    offsets_t = np.load( pjn(path_object, 'gt_offsets/offsets_%s.npy')%\
+                      (['std', 'hres'][is_hres]) )
+    
+    # prepare texture
+    tex_path = pjn(path_object, 'registered_tex.jpg')
+    
+    vis_subjectFromData_psbody(
+        SMPL, 
+        offsets_t, 
+        smplpara['pose'],
+        smplpara['betas'], 
+        smplpara['trans'],
+        path_bodyMesh, 
+        tex_path, 
+        is_hres)
 
-    # read displacements 
-    # p2pfile = pjn(path_object, 'displacement/p2p_displacements.npy')
-    # p2ffile = pjn(path_object, 'displacement/p2f_displacements.npy')
-    p2pNormfile = pjn(path_object, 'GroundTruth/normal_guided_displacements_oversample_OFF.npy')
-    
-    # p2pDisp = np.load(p2pfile)
-    # p2fDisp = np.load(p2ffile)
-    p2pNormDisp = np.load(p2pNormfile)
-    
-    # p2pComp = SMPLvert + p2pDisp - 2*np.array([meshDistance, 0, 0])
-    # p2fComp = SMPLvert + p2fDisp - 3*np.array([meshDistance, 0, 0])
-    p2pNormComp = SMPLvert + p2pNormDisp - 4*np.array([meshDistance, 0, 0])
-    
-    # create meshes for visualization
-    meshregister = o3d.geometry.TriangleMesh()
-    meshregister.vertices = o3d.utility.Vector3dVector(body_vertices)
-    meshregister.triangles= o3d.utility.Vector3iVector(body_mesh)
-    
-    meshSMPL = o3d.geometry.TriangleMesh()
-    meshSMPL.vertices = o3d.utility.Vector3dVector(SMPLvert)
-    meshSMPL.triangles= o3d.utility.Vector3iVector(SMPLmodel.f)
-    
-    # meshSMPLp2p = o3d.geometry.TriangleMesh()
-    # meshSMPLp2p.vertices = o3d.utility.Vector3dVector(p2pComp)
-    # meshSMPLp2p.triangles= o3d.utility.Vector3iVector(SMPLmodel.f)
-    
-    # meshSMPLp2f = o3d.geometry.TriangleMesh()
-    # meshSMPLp2f.vertices = o3d.utility.Vector3dVector(p2fComp)
-    # meshSMPLp2f.triangles= o3d.utility.Vector3iVector(SMPLmodel.f)
-    
-    meshSMPLp2pNorm = o3d.geometry.TriangleMesh()
-    meshSMPLp2pNorm.vertices = o3d.utility.Vector3dVector(p2pNormComp)
-    meshSMPLp2pNorm.triangles= o3d.utility.Vector3iVector(SMPLmodel.f)
-    
-    # visualize mesh to debug
-    if visMesh:
-        mesh_frame = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.6, origin=[0, 0, 0.5])
-        o3d.visualization.draw_geometries([meshregister, meshSMPL, mesh_frame, meshSMPLp2pNorm])
 
-    if save:
-        pathDisplacement = pjn(path_object, 'GroundTruth/')
-        o3d.io.write_triangle_mesh( pjn(pathDisplacement, "registered.obj"), meshregister)
-        o3d.io.write_triangle_mesh( pjn(pathDisplacement, "SMPLposed.obj") , meshSMPL)
-        # o3d.io.write_triangle_mesh( pjn(pathDisplacement, "SMPLp2pCom.obj"), meshSMPLp2p)
-        # o3d.io.write_triangle_mesh( pjn(pathDisplacement, "SMPLp2fCom.obj"), meshSMPLp2f)
-        o3d.io.write_triangle_mesh( pjn(pathDisplacement, "SMPLp2pNormCom.obj"), meshSMPLp2pNorm)
+def vis_subjectFromData_psbody(
+        SMPL:Smpl, offsets_t:array, pose:array, betas:array, 
+        trans: array, refMesh_path: str, tex_path: str, 
+        is_hres: bool):
+
+    if SMPL is None:
+        dp = SmplPaths()
+        SMPL = Smpl( dp.get_hres_smpl_model_data() if is_hres else dp.get_smpl_file() )
+    
+    # t-pose smpl body mesh
+    body_t = Mesh(SMPL.r + offsets_t, SMPL.f)
+    if refMesh_path is not None and tex_path is not None:
+        _, _, t, ft = read_Obj(refMesh_path)    
+        body_t.vt = t
+        body_t.ft = ft
+        body_t.set_texture_image(tex_path)
+
+    # posed smplD body mesh
+    SMPL, body_p = create_smplD_psbody(SMPL, offsets_t, pose, betas, trans)
+    if refMesh_path is not None and tex_path is not None:
+        body_p.vt = t
+        body_p.ft = ft
+        body_p.set_texture_image(tex_path)
         
-
-def visualizePointCloud(pointCloud: Tensor, texture: Tensor = None, 
-                        normalKNN: int = 5):
-    '''
-    This function visualize the given point cloud by open3D package. The color
-    is normal vector of vertices.
-
-    Parameters
-    ----------
-    pointCloud : Tensor
-        The point cloud to be visualized, [Nx3].
-    texture : Tensor
-        The texture of to be draw on the point cloud, [Nx3].
-    normalKNN : int, optional
-        The number of nearest neigbors to approximate the normal. 
-        The default is 5.
-
-    Returns
-    -------
-    None.
-
-    '''    
-    KNNPara = o3d.geometry.KDTreeSearchParamKNN(normalKNN)
-    
-    # use open3d to estimate normals
-    PointCloud = o3d.geometry.PointCloud()
-    PointCloud.points = o3d.utility.Vector3dVector(pointCloud)
-    PointCloud.estimate_normals(search_param = KNNPara)
-    
-    if texture is not None:
-        PointCloud.colors = o3d.utility.Vector3dVector(texture)
-        
-    # visualize the estimated normal on the mesh
-    o3d.visualization.draw_geometries([PointCloud])
+    mvs = MeshViewers((1,2))
+    mvs[0][0].set_static_meshes([ body_t ])
+    mvs[0][1].set_static_meshes([ body_p ])
     
 
-def interpolateTexture(verticeShape: tuple, mesh: array, texture: array, 
-                       text_uv_coord: array, text_uv_mesh: array, 
-                       algorithm: str = 'nearestNeighbors') -> array:
-    '''
-    This function interpolates the given texture for the given mesh. 
-
-    Parameters
-    ----------
-    verticeShape : tuple
-        The shape of the vertices of the mesh.
-    mesh : array
-        The edges of the mesh, [Nx3].
-    texture : array
-        The texture image of the mesh, [HxW].
-    text_uv_coord : array
-        The uv coordiate to get the color from the texture.
-    text_uv_mesh : array
-        Specifying the id of uv_coord of triplets.
-    algorithm : str, optional
-        Which interpolation algorithm to use. 
-        The default is 'nearestNeighbors'.
-
-    Returns
-    -------
-    array
-        The color of the mesh.
-
-    '''
-    assert algorithm in ('nearestNeighbors', 'cubic'), "only support nearestNeighbors and cubic."
+if __name__ == "__main__":
     
-    UV_size = texture.shape[0]
-    text_uv_coord[:, 1] = 1 - text_uv_coord[:, 1];
-    x = np.linspace(0, 1, UV_size)
-    y = np.linspace(0, 1, UV_size)
-    meshColor = np.zeros(verticeShape)
+    path_object = '../../datasets/MGN_new_partial/125611487366942_coat_050_pants_007_pose_054'
+    path_SMPLpkl= '../../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl'
     
-    if algorithm == 'cubic':
-        R = interpolate.interp2d(x, y, texture[:,:,0], kind='cubic')
-        G = interpolate.interp2d(x, y, texture[:,:,1], kind='cubic')
-        B = interpolate.interp2d(x, y, texture[:,:,2], kind='cubic')
-        
-        for indVt, induv in zip(mesh.flatten(), text_uv_mesh.flatten()):
-            meshColor[indVt,:] = np.stack((R(text_uv_coord[induv,0], text_uv_coord[induv,1]),
-                                           G(text_uv_coord[induv,0], text_uv_coord[induv,1]),
-                                           B(text_uv_coord[induv,0], text_uv_coord[induv,1])), 
-                                          axis = 1)
-    elif algorithm == 'nearestNeighbors':
-        xg, yg = np.meshgrid(x,y)
-        coords = np.stack([xg.flatten(), yg.flatten()], axis = 1)
-        interp = interpolate.NearestNDInterpolator(coords, texture.reshape(-1, 3))
-
-        for indVt, induv in zip(mesh.flatten(), text_uv_mesh.flatten()):
-            meshColor[indVt,:] = interp(text_uv_coord[induv,0], text_uv_coord[induv,1])
-        
-    return meshColor
+    vis_subjectFromPath(
+        path_object = path_object, 
+        path_SMPLmodel = path_SMPLpkl,
+        path_bodyMesh = pjn(path_object, 'smpl_registered.obj'),    # std use: '../../body_model/text_uv_coor_smpl.obj'
+        is_hres = True
+        )
