@@ -4,7 +4,7 @@ from psbody.mesh import Mesh
 from os.path import join
 import pickle as pkl
 from lib.serialization import backwards_compatibility_replacements, load_model
-from geometry import get_hres
+from .geometry import get_hres
 import scipy.sparse as sp
 
 ## Set your paths here

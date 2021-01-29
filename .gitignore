@@ -1,0 +1,14 @@
+datasets/
+logs/
+scripts/third_party/
+body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl
+
+scripts/__pycache__/
+scripts/dataset/MGN_helper/__pycache__/
+scripts/dataset/MGN_helper/lib/__pycache__/
+scripts/dataset/MGN_helper/utils/__pycache__/
+scripts/dataset/__pycache__/
+scripts/models/__pycache__/
+scripts/utils/__pycache__/
+
+
