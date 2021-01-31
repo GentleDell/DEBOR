@@ -376,13 +376,14 @@ class trainer(BaseTrain):
         if not isfile(_input):
             plt.imsave(_input, data['img'][ind].cpu().permute(1,2,0).clamp(0,1).numpy())
             
-        # overlap the prediction to the real image
+        # overlap the prediction to the real image; as the mesh .obj has diff 
+        # ft/uv coord from MPI lib and MGN, we flip the predicted texture.
         save_renderer = simple_renderer(batch_size = 1)
         predTrans = torch.stack(
             [prediction['theta'][ind, 1],
              prediction['theta'][ind, 2],
              2 * 1000. / (224. * prediction['theta'][ind, 0] + 1e-9)], dim=-1)
-        tex = prediction['tex_image'][ind][None]
+        tex = prediction['tex_image'][ind].flip(dims=(0,))[None]
         pred_img = save_renderer(
             verts = prediction['verts'][ind][None],
             faces = self.faces[ind][None],
