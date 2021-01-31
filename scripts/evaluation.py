@@ -60,7 +60,7 @@ def convert_GT(options, input_batch, smpl, faces, perspCam, dispPara, device):
         output3d = True
         )
     joints_3d = (joints_3d - input_batch['GTcamera']['t'][:,None,:]).float() # remove shifts
-    
+
     # convert to [-1, +1]
     joints_2d = (torch.cat(joints_2d, dim=0).reshape([options.batch_size, 24, 2]) - 112)/112
     joints_2d = joints_2d.float()
@@ -82,6 +82,7 @@ def convert_GT(options, input_batch, smpl, faces, perspCam, dispPara, device):
     GT = {'img' : input_batch['img'].float(),
           'img_orig': input_batch['img_orig'].float(),
           'imgname' : input_batch['imgname'],
+          
           'camera': input_batch['GTcamera'],                   # wcd 
           'theta': smplGT.float(),        
           
@@ -90,13 +91,17 @@ def convert_GT(options, input_batch, smpl, faces, perspCam, dispPara, device):
           'target_3d': joints_3d.float(),
           'target_bvt': vertices.float(),   # body vertices
           'target_dp': input_batch['GToffsets_t']['offsets'].float(),    # smpl cd t-pose
+          
           'target_uv': input_batch['GTtextureMap'].float()
           }
         
-    return GT  
+    return GT
 
 
 def evaluation_structure(pathCkp: str):
+    
+    print('If trained locally and renamed the workspace, do not for get to '
+          'change the "checkpoint_dir" in config.json. ')
     
     # Load configuration
     with open( pjn(pathCkp, 'config.json') , 'r' ) as f:
@@ -146,7 +151,7 @@ def evaluation_structure(pathCkp: str):
     avgCam  = torch.Tensor([1.2755, 0, 0])[None].to(device)    # 1.2755 is for our settings
     
     # displacement mean and std     
-    dispPara = torch.Tensor(np.load(options.MGN_dispMeanStd_path)).to(device)
+    dispPara = torch.Tensor(np.load(options.MGN_offsMeanStd_path)).to(device)
     
     perspCam = perspCamera() 
     
@@ -201,7 +206,7 @@ def evaluation_structure(pathCkp: str):
 
             textErr += (pred[0]['tex_image'] - \
                         GT['target_uv']).norm(dim=3).view(-1,50176).mean(dim=1).sum()
-                
+            
             poseErr += (pred[0]['theta'][:,6:75].reshape([-1, 23, 3]) - \
                         GT['theta'][:,6:75].reshape([-1, 23, 3]))       \
                         .norm(dim=2).view(-1,23).mean(dim=1).sum()
@@ -232,9 +237,7 @@ def evaluation_structure(pathCkp: str):
 
 if __name__ == '__main__':
     
-    print('be aware of the input to the model, some use img_orig but some use img.')
-    
-    path_to_chkpt = '../logs/local/structure_ver1_full_doubleEnc'
+    path_to_chkpt = '../logs/local/structure_ver1_full_doubleEnc_newdataset_8_ver1'
     
     evaErrs = evaluation_structure(path_to_chkpt)
     

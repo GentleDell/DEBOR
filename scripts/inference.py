@@ -14,6 +14,10 @@ import sys
 if abspath('./') not in sys.path:
     sys.path.append(abspath('./'))
     sys.path.append(abspath('./third_party/smpl_webuser'))
+if abspath('./dataset') not in sys.path:
+    sys.path.append(abspath('./dataset'))
+if abspath('./dataset/MGN_helper') not in sys.path:
+    sys.path.append(abspath('./dataset/MGN_helper'))
     
 import json
 import torch
@@ -23,22 +27,71 @@ from numpy import array
 import open3d as o3d
 import matplotlib.pyplot as plt
 from torchvision.transforms import Normalize
+from psbody.mesh import Mesh as psMesh, MeshViewers
 
+from MGN_helper.lib.ch_smpl import Smpl
 from utils import Mesh, CheckpointSaver
 from utils.imutils import crop, background_replacing
-from utils.mesh_util import generateSMPLmesh, create_fullO3DMesh
+from utils.mesh_util import generateSMPLmesh, create_fullO3DMesh, create_smplD_psbody
 from models import frameVIBE, SMPL, simple_renderer
 from models.geometric_layers import rotationMatrix_to_axisAngle, axisAngle_to_Rot6d
 from utils.vis_util import read_Obj
 
 
-def visbodyPrediction(img_in, prediction, options, 
-                      device = 'cuda', isAug = False, ind = 0):
+def visbodyPrediction(img_in, prediction, options, path_object,
+                      device = 'cuda', ind = 0):
     
     prediction = prediction[0]
     
-    # displacement means and std
-    dispPara = torch.Tensor(np.load(options.MGN_dispMeanStd_path)).to(device)
+    # <==== vis predicted body and displacements in 3D
+    # displacements mean and std
+    dispPara = np.load(options.MGN_offsMeanStd_path)
+        
+    # SMPLD model
+    smplD = Smpl( options.smpl_model_path ) 
+    
+    # gt body and offsets
+    gt_offsets_t = np.load(pjn(path_object, 'gt_offsets/offsets_std.npy'))
+    pathRegistr  = pjn(path_object, 'registration.pkl')
+    registration = pickle.load(open(pathRegistr, 'rb'),  encoding='iso-8859-1')
+    gtBody_p = create_smplD_psbody(
+        smplD, 
+        gt_offsets_t, 
+        registration['pose'], 
+        registration['betas'], 
+        0,
+        rtnMesh = True)[1]
+    
+    # naked posed body
+    nakedBody_p = create_smplD_psbody(
+        smplD, 0, 
+        prediction['theta'][ind][3:75][None].cpu(), 
+        prediction['theta'][ind][75:][None].cpu(), 
+        0, 
+        rtnMesh=True)[1]
+    
+    # offsets in t-pose
+    displacements = prediction['verts_disp'].cpu().numpy()[ind]
+    offPred_t  = (displacements*dispPara[1]+dispPara[0])
+    
+    # create predicted dressed body       
+    dressbody_p = create_smplD_psbody(
+        smplD, offPred_t, 
+        prediction['theta'][ind][3:75].cpu().numpy(), 
+        prediction['theta'][ind][75:].cpu().numpy(), 
+        0, 
+        rtnMesh=True)[1]
+    
+    mvs = MeshViewers((1, 3))
+    mvs[0][0].set_static_meshes([gtBody_p])
+    mvs[0][1].set_static_meshes([nakedBody_p])
+    mvs[0][2].set_static_meshes([dressbody_p])    
+    
+    offset_p = torch.tensor(dressbody_p.v - nakedBody_p.v).to(device).float()
+    
+    # <==== vis the overall prediction, i.e. render the image
+    
+    dispPara = torch.tensor(dispPara).to(device)
     
     # smpl Mesh
     mesh = Mesh(options, options.num_downsampling)
@@ -55,29 +108,15 @@ def visbodyPrediction(img_in, prediction, options,
     smpl_verts_uvs = torch.as_tensor(expUV[index,:]).float().to(device)
     smpl_tri_ind   = torch.as_tensor(smpl_tri_ind).to(device)
     
-    # vis body model
-    smpl = SMPL(options.smpl_model_path, device)
-    body = smpl(prediction['theta'][ind][3:75][None], prediction['theta'][ind][75:][None]).cpu()
-    
-    disp = (prediction['verts_disp'][ind]*dispPara[1]+dispPara[0]).cpu()
-    dressedbody = body + disp
-        
-    MeshPred = create_fullO3DMesh(body[ind], faces.cpu()[0])    
-    o3d.visualization.draw_geometries([MeshPred])
-    
-    MeshPred = create_fullO3DMesh(dressedbody[ind], faces.cpu()[0])    
-    o3d.visualization.draw_geometries([MeshPred])
-    
     # vis texture
     vis_renderer = simple_renderer(batch_size = 1)
     predTrans = torch.stack(
         [prediction['theta'][ind, 1],
          prediction['theta'][ind, 2],
          2 * 1000. / (224. * prediction['theta'][ind, 0] + 1e-9)], dim=-1)
-    tex = (prediction['tex_image'][ind][None], 
-           prediction['tex_image'][ind].flip(dims=(0,))[None])[isAug]
+    tex = prediction['tex_image'][ind].flip(dims=(0,))[None]
     pred_img = vis_renderer(
-        verts = prediction['verts'][ind][None]+disp.to('cuda'),
+        verts = prediction['verts'][ind][None]+offset_p,
         faces = faces[ind][None],
         verts_uvs = smpl_verts_uvs[None],
         faces_uvs = smpl_tri_ind[None],
@@ -100,57 +139,13 @@ def visbodyPrediction(img_in, prediction, options,
         plt.imshow(overlayimg.cpu())
         plt.figure()
         plt.imshow(img_in.cpu().permute(1,2,0))
-        
-        
-def visdispPrediction(path_object: str, path_SMPLmodel: str, displacement: array,
-                  chooseUpsample: bool = True):
-    # upsampled mesh
-    pathtext = pjn(path_object, 'GroundTruth/vertex_colors_oversample_%s.npy'%
-                       (['OFF', 'ON'][chooseUpsample]))
-    pathobje = pjn('/'.join(path_SMPLmodel.split('/')[:-1]), 'text_uv_coor_smpl.obj')
-    
-    # SMPL parameters
-    pathRegistr  = pjn(path_object, 'registration.pkl')
-    
-    # load SMPL parameters and model; transform vertices and joints.
-    registration = pickle.load(open(pathRegistr, 'rb'),  encoding='iso-8859-1')
-    SMPLvert_posed, joints = generateSMPLmesh(
-            path_SMPLmodel, registration['pose'], registration['betas'], 
-            registration['trans'], asTensor=True)
-    
-    # load SMPL obj file
-    smplVert, smplMesh, smpl_text_uv_coord, smpl_text_uv_mesh = read_Obj(pathobje)
-    smpl_text_uv_coord[:, 1] = 1 - smpl_text_uv_coord[:, 1]    # SMPL .obj need this conversion
-    
-    # upsample the orignal mesh if choose upsampled GT
-    if chooseUpsample:
-        o3dMesh = o3d.geometry.TriangleMesh()
-        o3dMesh.vertices = o3d.utility.Vector3dVector(SMPLvert_posed)
-        o3dMesh.triangles= o3d.utility.Vector3iVector(smplMesh) 
-        o3dMesh = o3dMesh.subdivide_midpoint(number_of_iterations=1)
-        
-        SMPLvert_posed = np.asarray(o3dMesh.vertices)
-        smplMesh = np.asarray(o3dMesh.triangles)
-    
-    # create meshes
-    if isfile(pathtext):
-        vertexcolors = np.load(pathtext)
-        
-        growVertices = SMPLvert_posed + displacement
-        clrBody = create_fullO3DMesh(growVertices, smplMesh, 
-                                     vertexcolor=vertexcolors/vertexcolors.max(), 
-                                     use_vertex_color=True)
-        
-        SMPLvert_posed += np.array([0.6,0,0])
-        segBody = create_fullO3DMesh(SMPLvert_posed, smplMesh, 
-                                     vertexcolor=vertexcolors/vertexcolors.max(), 
-                                     use_vertex_color=True)    
-
-        o3d.visualization.draw_geometries([clrBody, segBody])
-
-
+            
 def inference_structure(pathCkp: str, pathImg: str = None, 
                         pathBgImg: str = None):
+    
+    print('If trained locally and renamed the workspace, do not for get to '
+          'change the "checkpoint_dir" in config.json. ')
+    
     # Load configuration
     with open( pjn(pathCkp, 'config.json') , 'r' ) as f:
         options = json.load(f)
@@ -236,32 +231,25 @@ def inference_structure(pathCkp: str, pathImg: str = None,
     # augment image
     center =  [(boundbox[0]+boundbox[2])/2, (boundbox[1]+boundbox[3])/2] 
     scale  =  max((boundbox[2]-boundbox[0])/200, (boundbox[3]-boundbox[1])/200)
-    img  = crop(img, center, scale, [224, 224], rot=0)
-    
-    # img  = torch.Tensor(img).permute(2,0,1)/255
-    img_in = normalize_img( torch.Tensor(img).permute(2,0,1)/255 )
+    img    = torch.Tensor(crop(img, center, scale, [224, 224], rot=0)).permute(2,0,1)/255
+    img_in = normalize_img(img)
     
     # Inference
     with torch.no_grad():    # disable grad
         model.eval()    
         prediction = model(img_in[None].repeat_interleave(options.batch_size, dim = 0).to(device),
-                           img_in[None].repeat_interleave(options.batch_size, dim = 0).to(device))
+                           img[None].repeat_interleave(options.batch_size, dim = 0).to(device))
 
     return prediction, img_in, options
 
 if __name__ == '__main__':
     
-    print("Be careful with the resnet50 in GCN, some remove it some not.")
-    
     path_to_SMPL  = '../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl' 
-    path_to_chkpt = '../logs/local/structure_ver1_full_doubleEnc'
-    path_to_object= '../datasets/MGN_brighter_augmented/125611517596592/'
+    path_to_chkpt = '../logs/local/structure_ver1_full_doubleEnc_newdataset_8_ver1'
+    path_to_object= '../datasets/Multi-Garment_dataset/125611487366942/'
     path_to_image = pjn(path_to_object, 'rendering/camera0_light0_smpl_registered.png')
 
     prediction, img_in, options = inference_structure(path_to_chkpt, path_to_image)
-    visbodyPrediction(img_in, prediction, options, isAug=True)
-   
-    visdispPrediction(path_to_object, path_to_SMPL, prediction, False)
-    plt.imshow(img_in.permute(1,2,0))
+    visbodyPrediction(img_in, prediction, options, path_to_object)
 
     
