@@ -338,8 +338,9 @@ class MGN_bodyAug_preparation(object):
             subTex  = pjn(subPath, 'registered_tex.jpg')  # texture map for body
             subSeg  = pjn(subPath, 'segmentation.png')    # segmentation map for body 
             
-            subObj.set_texture_image(subSeg)  # prepare for seg_filter
-            self.stdSMPLmesh.set_texture_image(subSeg)
+            subObj.set_texture_image(subSeg)              # prepare for seg_filter
+            self.stdSMPLmesh.set_texture_image(subSeg)       
+            self.stdSMPLmesh.reload_texture_image()       # as we reuse the std mesh, we must reload texture!
             
             ## compute offsets directly 
             tarPara = [self.poses[subInd], self.betas[subInd], self.trans[subInd]]

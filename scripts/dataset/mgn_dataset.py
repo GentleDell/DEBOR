@@ -19,7 +19,7 @@ import cv2
 from models import camera as perspCamera
 from models.geometric_layers import axisAngle_to_rotationMatrix
 from models.geometric_layers import rotMat_to_rot6d
-from models.geometric_layers import axisAngle_to_Rot6d, rot6d_to_axisAngle 
+from models.geometric_layers import axisAngle_to_Rot6d 
 from utils.vis_util import read_Obj
 # from utils.mesh_util import generateSMPLmesh
 from utils.render_util import camera as cameraClass
@@ -75,7 +75,16 @@ class BaseDataset(Dataset):
             self.bgimages = None
         
         # per-vertex mean and std of the offsets in training set 
+        # ATTENTION: 
+        #    as subjects in the test and validation set could have offsets on 
+        #    vertices that are not covered in training set(so mean = std = 0),
+        #    we have to remove these offsets otherwise there would be large 
+        #    normalized offsets. We use offsets_mask to represent the vertices.
         self.dispPara = np.load(self.options.MGN_offsMeanStd_path)
+        if split in ('test', 'validation'):
+            offsets_mask = (self.dispPara[1] == 0)*(self.dispPara[1] == 0)
+        else:
+            offsets_mask = np.zeros_like(self.dispPara[1]).astype('int')>0
         
         # load datatest
         self.objname, self.imgname, self.center, self.scale = [], [], [], []
@@ -130,10 +139,12 @@ class BaseDataset(Dataset):
                     lightSettings = literal_eval(f.readline())
                     self.lights.append(lightSettings)           
                     
-            # read and normalize the ground truth offsets
+            # read and normalize the ground truth offsets; remove offsets on
+            # vertices that not appear in the training set to avoid ill value.
             path_to_offsets = pjn(obj, 'gt_offsets')
             offsets_t = np.load( pjn(path_to_offsets, 'offsets_std.npy') )       # hres offsets is in offsets_hres.npy
             offsets_tn = (offsets_t - self.dispPara[0])/(self.dispPara[1]+1e-8)  # normalize offsets
+            offsets_tn[offsets_mask] = 0
             self.GToffsets.append({'offsets': offsets_tn})
             
             # read smpl parameters 

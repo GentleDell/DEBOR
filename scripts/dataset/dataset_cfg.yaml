@@ -9,7 +9,7 @@ smplMesh_std: "../../body_model/text_uv_coor_smpl.obj"
 blenderPath: "../../../../Tools/blender-2.91.0-linux64/blender"
 
 # MGN dataset paths
-datarootMGN: "../../datasets/Multi-Garmentdataset/Multi-Garment_dataset"
+datarootMGN: "../../datasets/Multi-Garment_dataset"
 wardrobeMGN: "../../datasets/MGN_dataset_02"
 path_downMat: '../../body_model/downConvMat_MGN_sparse.npz'
 
