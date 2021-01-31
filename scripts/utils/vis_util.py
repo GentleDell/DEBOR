@@ -11,7 +11,9 @@ import sys
 if abspath('../') not in sys.path:
     sys.path.append(abspath('../'))
     sys.path.append(abspath('../third_party/smpl_webuser'))
+if abspath('../dataset') not in sys.path:
     sys.path.append(abspath('../dataset'))
+if abspath('../dataset/MGN_helper') not in sys.path:
     sys.path.append(abspath('../dataset/MGN_helper'))
 
 import numpy as np
@@ -149,12 +151,12 @@ def vis_subjectFromData_psbody(
 
 if __name__ == "__main__":
     
-    path_object = '../../datasets/MGN_new_partial/125611487366942_coat_050_pants_007_pose_054'
+    path_object = '../../datasets/Multi-Garment_dataset/125611520103063_coat_094_pants_096_pose_096'
     path_SMPLpkl= '../../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl'
     
     vis_subjectFromPath(
         path_object = path_object, 
         path_SMPLmodel = path_SMPLpkl,
-        path_bodyMesh = pjn(path_object, 'smpl_registered.obj'),    # std use: '../../body_model/text_uv_coor_smpl.obj'
-        is_hres = True
+        path_bodyMesh = '../../body_model/text_uv_coor_smpl.obj',    # std uses: '../../body_model/text_uv_coor_smpl.obj'
+        is_hres = False                                              # hres uses: pjn(path_object, 'smpl_registered.obj')
         )
