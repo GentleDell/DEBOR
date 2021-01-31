@@ -1,10 +1,10 @@
 # Reconstruction of Dressed Body from a Single RGB Image
 The goal of this project is to reconstruct a dressed body and full texture from single RGB images.
-To this end, we construct a pipeline to estimate the body pose and shape, per-vertex displacements
+To this end, we construct a pipeline to estimate the body pose and shape, per-vertex offsets
 (as clothes) and UV texture map explicitly. The implementation is based on [VIBE](https://github.com/mkocabas/VIBE), [GraphCMR](https://github.com/nkolot/GraphCMR), [RotationContinuity](https://github.com/papagina/RotationContinuity), [
 TexturePose](https://github.com/geopavlakos/TexturePose), [MultiGarmentNetwork](https://github.com/bharat-b7/MultiGarmentNetwork). 
 
-This repo has been tested on Ubuntu18.04 with GTX1650/GTX2070.
+This repo has been tested on Ubuntu18.04 with Intel® Core™ i7-9700K CPU and GTX2070 (~19.7FPS).
 
 
 ## Dependencies
@@ -35,33 +35,63 @@ This repo has been tested on Ubuntu18.04 with GTX1650/GTX2070.
 ### Thirdparty
 
 - [smpl_webuser](http://smpl.is.tue.mpg.de): Registration might be required. Please download the package and copy the smpl_webuser folder to .../DEBOR/script/thirdparty. Meanwhile, copy the neutral SMPL model to .../DEBOR/body_model/.
-- [Multi Garment dataset](https://datasets.d2.mpi-inf.mpg.de/MultiGarmentNetwork/Multi-Garmentdataset.zip): please download and unzip the file to .../DEBOR/datasets/.
+- [Multi Garment dataset](https://datasets.d2.mpi-inf.mpg.de/MultiGarmentNetwork/Multi-Garmentdataset.zip): please download and unzip the datasets to .../DEBOR/datasets/.
+
+## Complete structure 
+- Under DEBOR/**body_model**:
+	- basicModel_neutral_lbs_10_207_0_v1.0.0.pkl
+	- downConvMat_MGN_sparse.npz
+	- edges_smpl.npy
+	- mesh_downsampling.npz
+	- MGN_train_avgBetas.npy
+	- MGN_train_avgPose.npy
+	- offsets_mean_std.npy
+	- smpl_mean_params.npz
+	- smpl_vt_ft.pkl
+	- text_uv_coor_smpl.obj
+
+- Under DEBOR/**datasets**:
+	- Multi-Garment_dataset
+	- MGN_dataset_02
+- Under DEBOR/scripts/**third_party**
+    - smpl_webuser
 
 ## Usage
 ### Dataset preparation
-Scripts for data preparation are in the *../DEBOR/scripts/dataset* folder. The configurations of data preparation is stored in *dataset_preparation_cfg.yaml*. Currently, only the MGN dataset is supported.
+Scripts for data preparation are provided in the *DEBOR/scripts/dataset* folder. The configurations of data preparation is stored in *dataset_cfg.yaml*. Currently, only the MGN dataset is supported.
 
-If dataset augmentation is not required:
-- set "enable_displacement=True" and "enable_rendering=True" in dataset_preparation_cfg.yaml. 
-- run MGN_dataPreperation.py
+**Steps:**
+- set paths and parameters in dataset_cfg.yaml
+- set enable_rendering and enable_offsets to True. 
+- run MGN_augmentation.py
+- run MGN_rendering.py
 
-If dataset augmentation is required:
-- run MGN_dataPreperation.py with "enable_displacement=True" and "enable_rendering=False" in dataset_preparation_cfg.yaml.
-- run MGN_dataPreAugmentation.py to augment the dataset. Currently, only pose augmentation is supported.
-- run MGN_dataPreperation.py with "enable_displacement=False" and "enable_rendering=True" in dataset_preparation_cfg.yaml to render RGB images.
+If augmentation with MGN_dataset_02 is required, set the *number_augment_poses* and *number_augment_garments* to proper value then follow the above steps. A sample dataset is provided [here]() but some of its subjects have incorrect offsets. So, it is recommended to use the dataset to get familiar with the framework and then create a new dataset.
+
+**Example:**
+
+We would like to augment subjects after the 5th; for each subject to be augmented, we would like to have 2 additional poses which have 2 difference garments, then we set
+```
+start_from_ind: 4
+number_augment_poses: 2
+number_augment_garments: 2
+```
+The script would compute offsets and augment subjects after the 5th subject. For each src subject there will 4 new subjects: every 2 of them have the same pose but all of them have different garments. The new pose and garments are randomly sampled.
+
+**Time:**
+
+For number_augment_poses = 2 and number_augment_garments = 2, on Intel® Core™ i7-9700K CPU, it takes around 10 hours to run MGN_augmentation.py and 3 hours to run MGN_rendering.py.
 
 ### Training
-Training related scripts are provided in *.../DEBOR/scripts/* folder. Training configurations are set in *train_structure_cfg.py*. 
-
-Train the pipeline with:
+Training related scripts are provided in */DEBOR/scripts/* folder. Training configurations are set in *train_structure_cfg.py*. Train the pipeline with:
 
 ```
 python train_structure.py 
 ```
-If batch_size=2, a GPU with at least 4GB RAM is required; If batch_size=8, it needs >=8GB GPU RAM; If batch_size=32, it needs >=28GB GPU RAM.
+If batch_size=2, a GPU with at least 4GB RAM is required; If batch_size=8, it needs >=8GB GPU RAM; If batch_size=32, it needs >=28GB GPU RAM. Training with large batch_size could lead to smoothened offsets (as clothes).
 
 ### Inference/Evaluation
-If there is a pre-trained model available, *inference.py* and *evaluation.py* are provided for inference and evaluation. Paths to checkpoints, samples, etc, need to be set inside the two scripts. 
+If there is a pre-trained model available, *inference.py* and *evaluation.py* are provided for inference and evaluation. Paths to checkpoints, samples, etc, need to be set **inside** the two scripts. 
 
 Inferencing the model:
 ```
@@ -72,7 +102,7 @@ Evaluating the model:
 ```
 python evaluation.py
 ```
-A pre-trained model are provided [here](https://drive.google.com/drive/folders/1Ozxd_9LJHwXHsqyumbbnL8OJYC-0rX-E?usp=sharing). To use it, download all files and copy them to *../DEBOR/logs/local/structure_ver1_full_doubleEnc/* folder.
+A pre-trained model are provided [here](). To use it, download all files and copy them to */DEBOR/logs/local/structure_ver1_full_doubleEnc_newdataset_8_ver1/* folder. This model is trained with the above sample dataset.
 
 ## References
 There are functions, classes and scripts in this project that are borrowed from external repos. Here are some great works we are benefited from: [VIBE](https://github.com/mkocabas/VIBE), [GraphCMR](https://github.com/nkolot/GraphCMR), [RotationContinuity](https://github.com/papagina/RotationContinuity), [
