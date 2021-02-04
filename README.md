@@ -103,7 +103,7 @@ Evaluating the model:
 ```
 python evaluation.py
 ```
-A pre-trained model are provided [here](https://drive.google.com/drive/folders/1VFp0nPBdMYyjKdAWuty7gTUGF7mIWT38?usp=sharing). To use it, download all files and copy them to */DEBOR/logs/local/structure_ver1_full_doubleEnc_newdataset_8_ver1/* folder. This model is trained with the above sample dataset.
+A pre-trained model are provided [here](https://drive.google.com/drive/folders/1VFp0nPBdMYyjKdAWuty7gTUGF7mIWT38?usp=sharing). To use it, download all files and copy them to */DEBOR/logs/local/structure_ver1_full_doubleEnc_newdataset_8_ver1.2/* folder. This model is trained with the above sample dataset.
 
 ## References
 There are functions, classes and scripts in this project that are borrowed from external repos. Here are some great works we are benefited from: [VIBE](https://github.com/mkocabas/VIBE), [GraphCMR](https://github.com/nkolot/GraphCMR), [RotationContinuity](https://github.com/papagina/RotationContinuity), [
