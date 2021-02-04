@@ -45,7 +45,6 @@ This repo has been tested on Ubuntu18.04 with Intel® Core™ i7-9700K CPU and G
 	- mesh_downsampling.npz
 	- MGN_train_avgBetas.npy
 	- MGN_train_avgPose.npy
-	- offsets_mean_std.npy
 	- smpl_mean_params.npz
 	- smpl_vt_ft.pkl
 	- text_uv_coor_smpl.obj
@@ -66,21 +65,23 @@ Scripts for data preparation are provided in the *DEBOR/scripts/dataset* folder.
 - run MGN_augmentation.py
 - run MGN_rendering.py
 
-If augmentation with MGN_dataset_02 is required, set the *number_augment_poses* and *number_augment_garments* to proper value then follow the above steps. A sample dataset is provided [here]() but some of its subjects have incorrect offsets. So, it is recommended to use the dataset to get familiar with the framework and then create a new dataset.
+If augmentation with MGN_dataset_02 is required, set the *number_augment_poses* and *number_augment_garments* to proper value then follow the above steps. 
+
+A sample augmented dataset is provided [here](https://drive.google.com/file/d/18xbbIQSOkmyq3ieNABQeiKK8mNy6vEQo/view?usp=sharing). This dataset generates 4 new subjects for each subjects of the original dataset and renders 48 images from 12 views with 4 lights conditions. But this is not enough to guarantee that the distribution of testing and evaluation datasets are close to that of the training set. (In facts, for offsets, the distributions are different for training, testing and evaluation sets in the sample dataset). So, it is recommended to use the dataset to get familiar with the framework and then create a new dataset having more augmented samples for training, e.g. more augmented poses and garments.
 
 **Example:**
 
-We would like to augment subjects after the 5th; for each subject to be augmented, we would like to have 2 additional poses which have 2 difference garments, then we set
+We would like to augment subjects after the 5th; for each subject in MGN main dataset, we would like to have 2 new poses, each having 2 difference garments (i.e. 4 new subjects in total), then we set
 ```
 start_from_ind: 4
 number_augment_poses: 2
 number_augment_garments: 2
 ```
-The script would compute offsets and augment subjects after the 5th subject. For each src subject there will 4 new subjects: every 2 of them have the same pose but all of them have different garments. The new pose and garments are randomly sampled.
+The script would compute offsets and augment subjects after the 5th subject. For each src subject there will be 4 new subjects: every 2 of them have the same pose but all of them have different garments. The new pose and garments are randomly sampled.
 
 **Time:**
 
-For number_augment_poses = 2 and number_augment_garments = 2, on Intel® Core™ i7-9700K CPU, it takes around 10 hours to run MGN_augmentation.py and 3 hours to run MGN_rendering.py.
+For number_augment_poses = 2 and number_augment_garments = 2, on Intel® Core™ i7-9700K CPU, it takes around 8 hours to run MGN_augmentation.py on MGN main dataset; For 6 cameras around the body, 4 main lights and 2 horizontal distance, it takes 6 hours to run MGN_rendering.py on the augmented dataset.
 
 ### Training
 Training related scripts are provided in */DEBOR/scripts/* folder. Training configurations are set in *train_structure_cfg.py*. Train the pipeline with:
@@ -91,7 +92,7 @@ python train_structure.py
 If batch_size=2, a GPU with at least 4GB RAM is required; If batch_size=8, it needs >=8GB GPU RAM; If batch_size=32, it needs >=28GB GPU RAM. Training with large batch_size could lead to smoothened offsets (as clothes).
 
 ### Inference/Evaluation
-If there is a pre-trained model available, *inference.py* and *evaluation.py* are provided for inference and evaluation. Paths to checkpoints, samples, etc, need to be set **inside** the two scripts. 
+If there is a pre-trained model available, *inference.py* and *evaluation.py* are provided for inference and evaluation. Paths to checkpoints, samples, etc, need to be set **inside** the two scripts. Besides, modify the **config.json** file in the checkpoint folder to make sure all paths in it are correctly set.
 
 Inferencing the model:
 ```
@@ -102,7 +103,7 @@ Evaluating the model:
 ```
 python evaluation.py
 ```
-A pre-trained model are provided [here](). To use it, download all files and copy them to */DEBOR/logs/local/structure_ver1_full_doubleEnc_newdataset_8_ver1/* folder. This model is trained with the above sample dataset.
+A pre-trained model are provided [here](https://drive.google.com/drive/folders/1VFp0nPBdMYyjKdAWuty7gTUGF7mIWT38?usp=sharing). To use it, download all files and copy them to */DEBOR/logs/local/structure_ver1_full_doubleEnc_newdataset_8_ver1/* folder. This model is trained with the above sample dataset.
 
 ## References
 There are functions, classes and scripts in this project that are borrowed from external repos. Here are some great works we are benefited from: [VIBE](https://github.com/mkocabas/VIBE), [GraphCMR](https://github.com/nkolot/GraphCMR), [RotationContinuity](https://github.com/papagina/RotationContinuity), [
