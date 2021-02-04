@@ -13,6 +13,10 @@ if abspath('./') not in sys.path:
     sys.path.append(abspath('./'))
 if abspath('./third_party/smpl_webuser') not in sys.path:
     sys.path.append(abspath('./third_party/smpl_webuser'))
+if abspath('./dataset') not in sys.path:
+    sys.path.append(abspath('./dataset'))
+if abspath('./dataset/MGN_helper') not in sys.path:
+    sys.path.append(abspath('./dataset/MGN_helper'))
 from collections import namedtuple
 
 import json
@@ -237,7 +241,11 @@ def evaluation_structure(pathCkp: str):
 
 if __name__ == '__main__':
     
-    path_to_chkpt = '../logs/local/structure_ver1_full_doubleEnc_newdataset_8_ver1'
+    print('The offsets_mean_std.npy in body model must correspond to the ' + 
+          'generated dataset used for evaluation! Otherwise the criterion ' +
+          'could have wrong results/values.')
+    
+    path_to_chkpt = '../logs/local/structure_ver1_full_doubleEnc_newdataset_8_ver1.2'
     
     evaErrs = evaluation_structure(path_to_chkpt)
     

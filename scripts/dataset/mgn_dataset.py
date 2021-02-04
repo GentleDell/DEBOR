@@ -74,18 +74,6 @@ class BaseDataset(Dataset):
         else:
             self.bgimages = None
         
-        # per-vertex mean and std of the offsets in training set 
-        # ATTENTION: 
-        #    as subjects in the test and validation set could have offsets on 
-        #    vertices that are not covered in training set(so mean = std = 0),
-        #    we have to remove these offsets otherwise there would be large 
-        #    normalized offsets. We use offsets_mask to represent the vertices.
-        self.dispPara = np.load(self.options.MGN_offsMeanStd_path)
-        if split in ('test', 'validation'):
-            offsets_mask = (self.dispPara[1] == 0)*(self.dispPara[1] == 0)
-        else:
-            offsets_mask = np.zeros_like(self.dispPara[1]).astype('int')>0
-        
         # load datatest
         self.objname, self.imgname, self.center, self.scale = [], [], [], []
         self.camera, self.lights = [], []      
@@ -139,13 +127,10 @@ class BaseDataset(Dataset):
                     lightSettings = literal_eval(f.readline())
                     self.lights.append(lightSettings)           
                     
-            # read and normalize the ground truth offsets; remove offsets on
-            # vertices that not appear in the training set to avoid ill value.
+            # read original offsets in t-pose
             path_to_offsets = pjn(obj, 'gt_offsets')
             offsets_t = np.load( pjn(path_to_offsets, 'offsets_std.npy') )       # hres offsets is in offsets_hres.npy
-            offsets_tn = (offsets_t - self.dispPara[0])/(self.dispPara[1]+1e-8)  # normalize offsets
-            offsets_tn[offsets_mask] = 0
-            self.GToffsets.append({'offsets': offsets_tn})
+            self.GToffsets.append({'offsets': offsets_t})
             
             # read smpl parameters 
             #     The 6D rotation representation is used here.
@@ -163,6 +148,34 @@ class BaseDataset(Dataset):
             UV_textureMap = cv2.imread( pjn(obj, 'registered_tex.jpg') )[:,:,::-1]/255.0
             UV_textureMap = cv2.resize(UV_textureMap, (self.options.img_res, self.options.img_res), cv2.INTER_CUBIC)
             self.GTtextureMap.append(UV_textureMap)
+        
+        # since every new dataset would have difference mean and std, we need 
+        # to compute and save (mean, std) for training set of each new dataset.
+        # Otherewise there could be ill valued offsets, e.g. 1e4 or 1e6. 
+        #
+        # similarly, we need to mask out some offsets in test and validation 
+        # sets, as these vertices are not covered in the training set. If not
+        # mask them, the normalized offsets would be wrong, e.g. 1e4 or 1e6.
+        # 
+        # currently, we normalize vertex by vertex, but it might be better to
+        # nomalize all offsets as a whole, i.e. 1 mean and 1 std.
+        dispPara = []
+        offsets_t = np.array([item['offsets'] for item in self.GToffsets])
+        offsets_mask = np.zeros_like(self.GToffsets[0]['offsets']).astype('int')>0    
+        if split == 'train':        # compute mean, std and save them to the given path
+            dispPara.append(offsets_t.mean(axis=0))
+            dispPara.append(offsets_t.std(axis=0))
+            
+            with open(self.options.MGN_offsMeanStd_path, 'wb') as f:
+                np.save(f, dispPara)   
+        else:                       # read the computed mean and std of the training set
+            dispPara = np.load(self.options.MGN_offsMeanStd_path)
+            offsets_mask = (dispPara[0] == 0)*(dispPara[1] == 0)
+                        
+        offsets_tn = (offsets_t - dispPara[0])/(dispPara[1]+1e-8)  # normalize offsets
+        for cnt in range(len(self.GToffsets)):
+            offsets_tn[cnt][offsets_mask] = 0
+            self.GToffsets[cnt]['offsets'] = offsets_tn[cnt]
             
         IMG_NORM_MEAN = [0.485, 0.456, 0.406]
         IMG_NORM_STD = [0.229, 0.224, 0.225]
