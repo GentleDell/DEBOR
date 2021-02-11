@@ -34,10 +34,14 @@ This repo has been tested on Ubuntu18.04 with Intel® Core™ i7-9700K CPU and G
 
 ### Thirdparty
 - [smpl_webuser](http://smpl.is.tue.mpg.de): Registration might be required. Please download the package and copy the smpl_webuser folder to .../DEBOR/script/thirdparty (some modifications on pkl load in the codes are needed).
-- [neutral SMPL](https://github.com/classner/up/blob/master/models/3D/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl): download and copy the neutral SMPL model to .../DEBOR/body_model/.
-- [Multi Garment dataset](https://datasets.d2.mpi-inf.mpg.de/MultiGarmentNetwork/Multi-Garmentdataset.zip): download and unzip the datasets to .../DEBOR/datasets/ if you would like to create a new dataset or you can use the provided sample dataset (see [here](### Dataset preparation). 
+- [neutral SMPL](https://github.com/classner/up/blob/master/models/3D/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl): Please download and copy the neutral SMPL model to .../DEBOR/body_model/.
+
+**If you would like to create a new dataset**
+- [Multi Garment dataset](https://datasets.d2.mpi-inf.mpg.de/MultiGarmentNetwork/Multi-Garmentdataset.zip): Download and unzip the datasets to .../DEBOR/datasets/ if you would like to create a new dataset. 
 - [Multi Garment dataset 02](https://datasets.d2.mpi-inf.mpg.de/MultiGarmentNetwork/Multi-Garmentdataset_02.zip): download and unzip the datasets to .../DEBOR/datasets/ if you would like to augment the MGN main dataset (the above one).
 - [Blender](https://www.blender.org/download/Blender2.91/blender-2.91.2-linux64.tar.xz/): download and unzip the software if you would like to render/generate a dataset.
+
+A sample dataset is provided if there is no need to create a new dataset(see [here](###Dataset preparation)).
 
 ## Complete structure 
 - Under DEBOR/**body_model**:
