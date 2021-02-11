@@ -42,7 +42,7 @@ This repo has been tested on Ubuntu18.04 with Intel® Core™ i7-9700K CPU and G
 - [Multi Garment dataset 02](https://datasets.d2.mpi-inf.mpg.de/MultiGarmentNetwork/Multi-Garmentdataset_02.zip): Download and unzip the datasets to .../DEBOR/datasets/ if you would like to augment the above MGN main dataset.
 - [Blender](https://www.blender.org/download/Blender2.91/blender-2.91.2-linux64.tar.xz/): Download and unzip the software. Set the path in the dataset_cfg.yaml. 
 
-A sample dataset is provided (see [here](###-Dataset-preparation)).
+A sample dataset is provided (see [here](###Dataset-preparation)).
 
 ## Complete structure 
 - Under DEBOR/**body_model**:
