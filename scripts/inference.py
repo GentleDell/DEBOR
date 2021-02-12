@@ -13,6 +13,7 @@ from collections import namedtuple
 import sys
 if abspath('./') not in sys.path:
     sys.path.append(abspath('./'))
+if abspath('./third_party/smpl_webuser') not in sys.path:
     sys.path.append(abspath('./third_party/smpl_webuser'))
 if abspath('./dataset') not in sys.path:
     sys.path.append(abspath('./dataset'))
@@ -245,7 +246,7 @@ def inference_structure(pathCkp: str, pathImg: str = None,
 if __name__ == '__main__':
     
     path_to_SMPL  = '../body_model/basicModel_neutral_lbs_10_207_0_v1.0.0.pkl' 
-    path_to_chkpt = '../logs/local/structure_ver1_full_doubleEnc_newdataset_8_ver1'
+    path_to_chkpt = '../logs/local/structure_ver1_full_doubleEnc_newdataset_8_ver1.3'
     path_to_object= '../datasets/Multi-Garment_dataset/125611487366942/'
     path_to_image = pjn(path_to_object, 'rendering/camera0_light0_smpl_registered.png')
 
