@@ -57,7 +57,8 @@ This repo has been tested on Ubuntu18.04 with Intel® Core™ i7-9700K CPU and G
 
 - Under DEBOR/**datasets**:
 	- Multi-Garment_dataset
-	- MGN_dataset_02
+	- MGN_dataset_02 (if want to create a new dataset and augment it)
+        - sample
 - Under DEBOR/scripts/**third_party**
     - smpl_webuser
 
@@ -98,7 +99,7 @@ python train_structure.py
 If batch_size=2, a GPU with at least 4GB RAM is required; If batch_size=8, it needs >=8GB GPU RAM; If batch_size=32, it needs >=28GB GPU RAM. Training with large batch_size could lead to smoothened offsets (as clothes).
 
 ### Inference/Evaluation
-If there is a pre-trained model available, *inference.py* and *evaluation.py* are provided for inference and evaluation. Paths to checkpoints, samples, etc, need to be set **inside** the two scripts. Besides, modify the **config.json** file in the checkpoint folder to make sure all paths in it are correctly set.
+If there is a pre-trained model available, *inference.py* and *evaluation.py* are provided for inference and evaluation. Paths to checkpoints, samples, etc, need to be set **inside** the two scripts. Besides, modify the **config.json** file in the checkpoint folder to make sure all paths in it are correct.
 
 Inferencing the model:
 ```
