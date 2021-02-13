@@ -58,7 +58,7 @@ This repo has been tested on Ubuntu18.04 with Intel® Core™ i7-9700K CPU and G
 - Under DEBOR/**datasets**:
 	- Multi-Garment_dataset
 	- MGN_dataset_02 (if want to create a new dataset and augment it)
-        - sample
+	- sample
 - Under DEBOR/scripts/**third_party**
     - smpl_webuser
 
