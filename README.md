@@ -27,6 +27,7 @@ This repo has been tested on Ubuntu18.04 with Intel® Core™ i7-9700K CPU and G
 - plyfile (required by open3d)
 - sklearn (required by open3d.ml3d)
 - pandas  (required by open3d.ml3d)
+- plotly
 - open3d  (>= 0.11.2)
 - [opendr](https://github.com/mattloper/opendr)  ( for dataset preparation; install from source with "python setup.py build" and "python setup.py install")
 - pyopengl
