@@ -79,6 +79,8 @@ class frameVIBE(nn.Module):
         smpl_output  = self.regressor(feature_pose)
         
         # <=== texture regression
+        #TODO: upsample the img and increase the res of uvimages can generate
+        #      more dense unwarpped texture map.
         with torch.no_grad():
             uvimages  = self.render_uvpose(smpl_output[0]['verts'], 
                                            smpl_output[0]['theta'][:,:3])
@@ -86,8 +88,6 @@ class frameVIBE(nn.Module):
         tex_output  = self.tex_regressor(unwarpTex.permute(0,3,1,2))    # N*3*224*224
         
         # <=== cloth regression
-        # unpose image
-        
         # regress clothes
         feature_disp = self.encoder_disp(img)
         feature_disp = feature_disp.reshape(-1, feature_disp.size(-1))

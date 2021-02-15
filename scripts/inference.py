@@ -8,7 +8,7 @@ Created on Sun Nov 29 11:05:05 2020
 import pickle
 from glob import glob
 from ast import literal_eval
-from os.path import join as pjn, isfile, abspath
+from os.path import join as pjn, abspath
 from collections import namedtuple
 import sys
 if abspath('./') not in sys.path:
@@ -24,17 +24,15 @@ import json
 import torch
 import cv2
 import numpy as np
-from numpy import array
-import open3d as o3d
 import matplotlib.pyplot as plt
 from torchvision.transforms import Normalize
-from psbody.mesh import Mesh as psMesh, MeshViewers
+from psbody.mesh import MeshViewers
 
 from MGN_helper.lib.ch_smpl import Smpl
 from utils import Mesh, CheckpointSaver
 from utils.imutils import crop, background_replacing
-from utils.mesh_util import generateSMPLmesh, create_fullO3DMesh, create_smplD_psbody
-from models import frameVIBE, SMPL, simple_renderer
+from utils.mesh_util import create_smplD_psbody
+from models import frameVIBE, simple_renderer
 from models.geometric_layers import rotationMatrix_to_axisAngle, axisAngle_to_Rot6d
 from utils.vis_util import read_Obj
 
