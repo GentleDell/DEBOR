@@ -7,6 +7,7 @@ Created on Sun Dec 27 17:57:19 2020
 """
 
 import os
+from typing import NamedTuple, Sequence
 
 import torch
 import torch.nn as nn
@@ -19,7 +20,7 @@ from pytorch3d.io import load_objs_as_meshes, load_obj
 from pytorch3d.structures import Meshes
 from pytorch3d.vis.plotly_vis import AxisArgs, plot_batch_individually, plot_scene
 from pytorch3d.vis.texture_vis import texturesuv_image_matplotlib
-from pytorch3d.renderer.blending import hard_rgb_blend, BlendParams
+from pytorch3d.renderer.blending import hard_rgb_blend
 from pytorch3d.renderer import (
     look_at_view_transform,
     PerspectiveCameras, 
@@ -32,12 +33,17 @@ from pytorch3d.renderer import (
     TexturesVertex
 )
 
+class BlendParams(NamedTuple):
+    sigma: float = 1e-4
+    gamma: float = 1e-4
+    background_color: Sequence = (0.0, 0.0, 0.0)
+
 
 class SimpleShader(nn.Module):
-    def __init__(self, device="cpu", blend_params=None):
+    def __init__(self, device="cpu"):
         super().__init__()
         
-        self.blend_params = blend_params if blend_params is not None else BlendParams()
+        self.blend_params = BlendParams()
         
     def forward(self, fragments, meshes, **kwargs) -> torch.Tensor:
         
