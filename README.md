@@ -1,4 +1,6 @@
 # Reconstruction of Dressed Body from a Single RGB Image
+This repository contains my master project done in [CVLab - EPFL](https://www.epfl.ch/labs/cvlab/).
+
 The goal of this project is to reconstruct a dressed body and full texture from single RGB images.
 To this end, we construct a pipeline to estimate the body pose and shape, per-vertex offsets
 (as clothes) and UV texture map explicitly. The implementation is based on [VIBE](https://github.com/mkocabas/VIBE), [GraphCMR](https://github.com/nkolot/GraphCMR), [RotationContinuity](https://github.com/papagina/RotationContinuity), [
