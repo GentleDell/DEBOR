@@ -8,7 +8,6 @@ TexturePose](https://github.com/geopavlakos/TexturePose), [MultiGarmentNetwork](
 
 This repo has been tested on Ubuntu18.04 with Intel® Core™ i7-9700K CPU and GTX2070 (~19.7FPS).
 
-
 ## Dependencies
 ### system
 - libgl1-mesa-dev (Optional: libglu1, freeglut3)
@@ -114,9 +113,11 @@ python evaluation.py
 ```
 A pre-trained model are provided [here](https://drive.google.com/file/d/1XY-jdVoOiKlYOJ2NHEWV5-7kyvAhYHoT/view?usp=sharing). To use it, download all files and copy them to */DEBOR/logs/local/structure_ver1_full_doubleEnc_newdataset_8_ver1.2/* folder. This model is trained with the above sample dataset.
 
+### Results
+Qualitative results for single view dressed body reconstruction on Multi-Garment dataset.
+
+<img src="img/results_qualit.png" width="500">
+
 ## References
 There are functions, classes and scripts in this project that are borrowed from external repos. Here are some great works we are benefited from: [VIBE](https://github.com/mkocabas/VIBE), [GraphCMR](https://github.com/nkolot/GraphCMR), [RotationContinuity](https://github.com/papagina/RotationContinuity), [
 TexturePose](https://github.com/geopavlakos/TexturePose), [MultiGarmentNetwork](https://github.com/bharat-b7/MultiGarmentNetwork). We would  like  to  thank all scientists and researchers in the community for sharing reading and research materials used in this project. 
-
-
-
